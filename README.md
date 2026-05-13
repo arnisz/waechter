@@ -302,3 +302,7 @@ pytest
 ## Repository Hygiene
 
 Do not commit `.env`, virtual environments, caches, logs, local archives, or IDE state. The included `.gitignore` excludes those files. Commit `.env.example` so deployments have a documented configuration template.
+
+## License
+
+Waechter is licensed under the GNU General Public License v3.0 or later. See [LICENSE](LICENSE).
