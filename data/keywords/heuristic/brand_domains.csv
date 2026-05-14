@@ -1,0 +1,15 @@
+brand,domain,match_mode
+amazon,amazon.de,etld1
+amazon,amazon.com,etld1
+amazon,amazon.co.uk,etld1
+amazon,pay.amazon.de,exact
+amazon,payments.amazon.de,exact
+paypal,paypal.com,etld1
+paypal,paypal.de,etld1
+microsoft,microsoft.com,etld1
+microsoft,office.com,etld1
+microsoft,live.com,etld1
+apple,apple.com,etld1
+google,google.com,etld1
+google,gmail.com,etld1
+facebook,facebook.com,etld1
