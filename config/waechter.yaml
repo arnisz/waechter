@@ -1,0 +1,60 @@
+providers:
+  heuristic:
+    enabled: true
+    weight: 0.6
+    thresholds:
+      redirect:
+        warning: 3
+        high: 5
+        max: 10
+      long_url_chars: 500
+    scores:
+      ip_address: 0.6
+      suspicious_tld: 0.5
+      long_url: 0.4
+      aws_lambda_phishing: 0.8
+      url_keywords: 0.4
+      path_keywords: 0.3
+      whois:
+        missing_creation: 0.5
+        age_lt_7d: 1.0
+        age_lt_30d: 0.7
+        fail_default: 0.5
+      redirects:
+        too_many: 0.8
+        many: 0.5
+        warning: 0.2
+        domain_mismatch: 0.5
+        to_ip: 0.7
+      html:
+        form_and_password: 1.0
+        form_and_email: 0.7
+        xhr_or_fetch: 0.5
+      parsing_failed: 0.8
+    lists:
+      suspicious_tlds: [".tk", ".ml", ".ga", ".cf"]
+    keyword_files:
+      brand: "data/keywords/heuristic/brand_keywords.csv"
+      path: "data/keywords/heuristic/path_keywords.csv"
+      url:  "data/keywords/heuristic/url_keywords.csv"
+
+  google_safe_browsing:
+    enabled: true
+    weight: 1.0
+    api:
+      daily_limit: 10000
+      client:
+        id: "waechter"
+        version: "1.1.0"
+
+  clamav:
+    enabled: false
+    weight: 1.0
+    connection:
+      socket_path: "/var/run/clamav/clamd.ctl"
+    limits:
+      max_bytes: 5242880   # 5 MiB
+      max_redirects: 7
+    timeouts:
+      download_sec: 10
+      scan_sec: 10

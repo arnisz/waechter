@@ -8,6 +8,7 @@ import aiohttp
 
 from src.logger import get_logger
 from src.providers.base import RedirectLimitExceededError, ScanProvider
+from src.config_loader import provider_cfg
 
 
 logger = get_logger()
@@ -20,17 +21,26 @@ class ClamAVProvider(ScanProvider):
 
     def __init__(
         self,
-        socket_path: str = "/var/run/clamav/clamd.ctl",
-        max_bytes: int = 5 * 1024 * 1024,
-        max_redirects: int = 7,
-        download_timeout_seconds: int = 10,
-        scan_timeout_seconds: int = 10,
+        socket_path: str | None = None,
+        max_bytes: int | None = None,
+        max_redirects: int | None = None,
+        download_timeout_seconds: int | None = None,
+        scan_timeout_seconds: int | None = None,
     ):
-        self.socket_path = socket_path
-        self.max_bytes = max_bytes
-        self.max_redirects = max_redirects
-        self.download_timeout_seconds = download_timeout_seconds
-        self.scan_timeout_seconds = scan_timeout_seconds
+        cfg = provider_cfg(self.name)
+        self.weight = float(cfg.get("weight", 1.0))
+        self.enabled = bool(cfg.get("enabled", True))
+
+        conn = (cfg.get("connection", {}) or {})
+        limits = (cfg.get("limits", {}) or {})
+        timeouts = (cfg.get("timeouts", {}) or {})
+
+        # Apply config defaults, then override with provided args if given
+        self.socket_path = socket_path or conn.get("socket_path", "/var/run/clamav/clamd.ctl")
+        self.max_bytes = int(max_bytes if max_bytes is not None else limits.get("max_bytes", 5 * 1024 * 1024))
+        self.max_redirects = int(max_redirects if max_redirects is not None else limits.get("max_redirects", 7))
+        self.download_timeout_seconds = int(download_timeout_seconds if download_timeout_seconds is not None else timeouts.get("download_sec", 10))
+        self.scan_timeout_seconds = int(scan_timeout_seconds if scan_timeout_seconds is not None else timeouts.get("scan_sec", 10))
 
     async def scan(self, url: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
         parsed = urllib.parse.urlparse(url)

@@ -8,6 +8,7 @@ from src import __version__
 from src.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider
 from src.loop import pull_loop
 from src.logger import get_logger
+from src.config_loader import provider_cfg
 
 load_dotenv()
 logger = get_logger()
@@ -23,20 +24,30 @@ async def main():
     api = WorkerApi(base_url, token)
 
     providers = [HeuristicProvider()]
-    if os.environ.get("CLAMAV_ENABLED", "").lower() in ("1", "true", "yes"):
-        clamav_socket_path = os.environ.get("CLAMAV_SOCKET_PATH", "/var/run/clamav/clamd.ctl")
-        providers.append(ClamAVProvider(clamav_socket_path))
+
+    # ClamAV enabled: ENV override takes precedence, else YAML config
+    clamav_cfg = provider_cfg("clamav")
+    env_flag = os.environ.get("CLAMAV_ENABLED")
+    if env_flag is not None:
+        clamav_enabled = env_flag.lower() in ("1", "true", "yes")
+    else:
+        clamav_enabled = bool(clamav_cfg.get("enabled", False))
+
+    if clamav_enabled:
+        clamav_socket_path = os.environ.get("CLAMAV_SOCKET_PATH", (clamav_cfg.get("connection", {}) or {}).get("socket_path", "/var/run/clamav/clamd.ctl"))
+        providers.append(ClamAVProvider(socket_path=clamav_socket_path))
 
     gsb_key = os.environ.get("GOOGLE_SAFE_BROWSING_API_KEY", "")
-    if gsb_key:
+    gsb_cfg = provider_cfg("google_safe_browsing")
+    if gsb_key and bool(gsb_cfg.get("enabled", True)):
         providers.append(GoogleSafeBrowsingProvider(gsb_key))
 
     logger.info("Starting Waechter daemon", extra={"extra_data": {
         "version": __version__,
         "providers": len(providers),
         "provider_names": [provider.name for provider in providers],
-        "clamav_enabled_env": os.environ.get("CLAMAV_ENABLED", ""),
-        "clamav_socket_path": os.environ.get("CLAMAV_SOCKET_PATH", "/var/run/clamav/clamd.ctl"),
+        "clamav_enabled_effective": clamav_enabled,
+        "clamav_socket_path": os.environ.get("CLAMAV_SOCKET_PATH", (clamav_cfg.get("connection", {}) or {}).get("socket_path", "/var/run/clamav/clamd.ctl")),
     }})
     await pull_loop(providers, api)
 
