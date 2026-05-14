@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 import aiohttp
 import whois
 
-from src.providers.base import ScanProvider
-from src.config_loader import cfg_get, provider_cfg, load_brand_keywords, load_keywords_list
+from waechter.providers.base import ScanProvider
+from waechter.config_loader import cfg_get, provider_cfg, load_brand_keywords, load_keywords_list
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +189,7 @@ class HeuristicProvider(ScanProvider):
             if hasattr(creation_date, 'replace'):
                 creation_date = creation_date.replace(tzinfo=None)
 
-            age_days = (datetime.utcnow() - creation_date).days
+            age_days = (datetime.now(timezone.utc).replace(tzinfo=None) - creation_date).days
             if age_days < 7:
                 return self.whois_age_lt_7d
             elif age_days < 30:
@@ -208,19 +208,32 @@ class HeuristicProvider(ScanProvider):
         timeout = aiohttp.ClientTimeout(total=5)
         score = 0.0
 
+        redirect_count = 0
+        redirect_urls = [url]
+        current_url = url
+
         try:
-            async with session.head(
-                url,
-                allow_redirects=True,
-                max_redirects=self.redirect_max,
-                timeout=timeout,
-            ) as resp:
-                redirect_count = len(resp.history)
-                redirect_urls = [str(history.url) for history in resp.history] + [str(resp.url)]
-        except aiohttp.TooManyRedirects as e:
-            redirect_count = len(e.history)
-            redirect_urls = [str(history.url) for history in e.history]
-            score += self.redir_too_many
+            while True:
+                async with session.request(
+                    "HEAD",
+                    current_url,
+                    allow_redirects=False,
+                    timeout=timeout,
+                ) as resp:
+                    if resp.status < 300 or resp.status >= 400:
+                        break
+
+                    location = resp.headers.get("Location")
+                    if not location:
+                        break
+
+                    redirect_count += 1
+                    current_url = urllib.parse.urljoin(current_url, location)
+                    redirect_urls.append(current_url)
+
+                    if redirect_count > self.redirect_max:
+                        score += self.redir_too_many
+                        break
         except (aiohttp.ClientError, asyncio.TimeoutError):
             return 0.0
 

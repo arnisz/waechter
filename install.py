@@ -292,9 +292,11 @@ def pip_install(python_bin: Path, req_file: Path) -> None:
     subprocess.check_call([str(python_bin), "-m", "pip", "install", "--upgrade", "pip"], cwd=str(PROJECT_ROOT))
     info("Installiere Abhängigkeiten (dies lädt Pakete aus dem Internet) …")
     subprocess.check_call([str(python_bin), "-m", "pip", "install", "-r", str(req_file)], cwd=str(PROJECT_ROOT))
+    info("Installiere Waechter im Editable-Modus …")
+    subprocess.check_call([str(python_bin), "-m", "pip", "install", "-e", str(PROJECT_ROOT)], cwd=str(PROJECT_ROOT))
 
     if prompt_bool("Entwickler-Tools (pytest, aioresponses) installieren?", default=False):
-        subprocess.check_call([str(python_bin), "-m", "pip", "install", "pytest", "aioresponses"], cwd=str(PROJECT_ROOT))
+        subprocess.check_call([str(python_bin), "-m", "pip", "install", "-e", f"{PROJECT_ROOT}[dev]"], cwd=str(PROJECT_ROOT))
 
 
 def load_env_example_defaults() -> dict[str, str]:

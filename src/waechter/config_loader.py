@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 
 def _project_root() -> Path:
-    # src/ is one level below project root
-    return Path(__file__).resolve().parents[1]
+    # src/waechter/ is two levels below the project root in editable installs.
+    return Path(__file__).resolve().parents[2]
 
 
 def _default_config_path() -> Path:

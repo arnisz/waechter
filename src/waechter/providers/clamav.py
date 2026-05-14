@@ -6,9 +6,9 @@ import urllib.parse
 
 import aiohttp
 
-from src.logger import get_logger
-from src.providers.base import RedirectLimitExceededError, ScanProvider
-from src.config_loader import provider_cfg
+from waechter.logger import get_logger
+from waechter.providers.base import RedirectLimitExceededError, ScanProvider
+from waechter.config_loader import provider_cfg
 
 
 logger = get_logger()

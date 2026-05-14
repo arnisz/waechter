@@ -2,7 +2,7 @@
 
 Waechter is an asynchronous Python worker that pulls pending URLs from a backend API, scans them with multiple providers, aggregates the provider scores, and posts the final scan result back to the backend.
 
-Current version: **0.0.1**
+Current version: **0.1.0**
 
 ## Features
 
@@ -23,12 +23,59 @@ Current version: **0.0.1**
 
 ## Installation
 
-Clone the repository and create a virtual environment:
+Clone the repository, then run the interactive installer from the project root:
+
+```bash
+python install.py
+```
+
+On Windows PowerShell:
+
+```powershell
+py install.py
+```
+
+The installer guides you through the basic setup:
+
+- creates or reuses `.venv`,
+- installs Python dependencies from `requirements.txt`,
+- installs Waechter as an editable local package,
+- creates missing default files under `config/` and `data/keywords/heuristic/`,
+- writes or updates `.env` with the required runtime settings.
+
+You will be prompted for:
+
+- `WORKER_BASE_URL`
+- `WAECHTER_TOKEN`
+- optional `GOOGLE_SAFE_BROWSING_API_KEY`
+- polling, batch, threshold, and concurrency settings
+- optional ClamAV settings
+
+After installation, activate the virtual environment and start the worker:
+
+```bash
+source .venv/bin/activate
+python main.py
+```
+
+On Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python main.py
+```
+
+Settings can be changed later in `.env` and `config/waechter.yaml`.
+
+### Manual Installation
+
+If you do not want to use the installer, create a virtual environment manually:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install -e .
 ```
 
 On Windows PowerShell:
@@ -37,6 +84,7 @@ On Windows PowerShell:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+pip install -e .
 ```
 
 Create your local environment file:
@@ -289,13 +337,14 @@ The aggregate score is mapped to a status using:
 Run the test suite:
 
 ```bash
-PYTHONPATH=. pytest
+pip install -e ".[dev]"
+pytest
 ```
 
 On Windows PowerShell:
 
 ```powershell
-$env:PYTHONPATH='.'
+pip install -e ".[dev]"
 pytest
 ```
 

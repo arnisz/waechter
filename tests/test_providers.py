@@ -1,6 +1,6 @@
 import pytest
 import aiohttp
-from src.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider, QuotaExhaustedError
+from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider, QuotaExhaustedError
 from aioresponses import aioresponses
 import json
 
@@ -25,11 +25,11 @@ async def test_heuristic_provider_scores_long_redirect_chain():
     provider = HeuristicProvider()
     async with aiohttp.ClientSession() as session:
         with aioresponses() as m:
-            m.get("http://example.com/start", status=301, headers={"Location": "http://example.com/r1"})
-            m.get("http://example.com/r1", status=301, headers={"Location": "http://example.com/r2"})
-            m.get("http://example.com/r2", status=301, headers={"Location": "http://example.com/r3"})
-            m.get("http://example.com/r3", status=301, headers={"Location": "http://example.com/r4"})
-            m.get("http://example.com/r4", status=200)
+            m.head("http://example.com/start", status=301, headers={"Location": "http://example.com/r1"})
+            m.head("http://example.com/r1", status=301, headers={"Location": "http://example.com/r2"})
+            m.head("http://example.com/r2", status=301, headers={"Location": "http://example.com/r3"})
+            m.head("http://example.com/r3", status=301, headers={"Location": "http://example.com/r4"})
+            m.head("http://example.com/r4", status=200)
 
             res = await provider.scan("http://example.com/start", session)
             assert res["raw_score"] >= 0.2
@@ -39,8 +39,8 @@ async def test_heuristic_provider_scores_redirect_to_raw_ip():
     provider = HeuristicProvider()
     async with aiohttp.ClientSession() as session:
         with aioresponses() as m:
-            m.get("http://example.com/start", status=301, headers={"Location": "http://203.0.113.10/final"})
-            m.get("http://203.0.113.10/final", status=200)
+            m.head("http://example.com/start", status=301, headers={"Location": "http://203.0.113.10/final"})
+            m.head("http://203.0.113.10/final", status=200)
 
             res = await provider.scan("http://example.com/start", session)
             assert res["raw_score"] >= 0.7

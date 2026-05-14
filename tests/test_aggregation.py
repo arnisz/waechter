@@ -1,5 +1,5 @@
 import pytest
-from src.aggregation import aggregate_score, map_status
+from waechter.aggregation import aggregate_score, map_status
 
 def test_aggregate_score():
     scans = [

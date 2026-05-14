@@ -3,12 +3,12 @@ import sys
 import asyncio
 from dotenv import load_dotenv
 
-from src.api import WorkerApi
-from src import __version__
-from src.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider
-from src.loop import pull_loop
-from src.logger import get_logger
-from src.config_loader import provider_cfg
+from waechter.api import WorkerApi
+from waechter import __version__
+from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider
+from waechter.loop import pull_loop
+from waechter.logger import get_logger
+from waechter.config_loader import provider_cfg
 
 load_dotenv()
 logger = get_logger()

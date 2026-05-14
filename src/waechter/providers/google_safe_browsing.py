@@ -3,8 +3,8 @@ import json
 
 import aiohttp
 
-from src.providers.base import QuotaAwareProvider
-from src.config_loader import provider_cfg
+from waechter.providers.base import QuotaAwareProvider
+from waechter.config_loader import provider_cfg
 
 
 class GoogleSafeBrowsingProvider(QuotaAwareProvider):

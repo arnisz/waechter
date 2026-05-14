@@ -3,11 +3,11 @@ import sys
 import asyncio
 import aiohttp
 from typing import List
-from src.types import PendingLink, ProviderScanPayload, ScanResultPayload
-from src.api import WorkerApi
-from src.providers import ScanProvider, QuotaExhaustedError
-from src.aggregation import aggregate_score, map_status
-from src.logger import get_logger
+from waechter.types import PendingLink, ProviderScanPayload, ScanResultPayload
+from waechter.api import WorkerApi
+from waechter.providers import ScanProvider, QuotaExhaustedError
+from waechter.aggregation import aggregate_score, map_status
+from waechter.logger import get_logger
 
 logger = get_logger()
 

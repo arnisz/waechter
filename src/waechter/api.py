@@ -1,6 +1,6 @@
 import aiohttp
 from typing import List
-from src.types import PendingLink, ScanResultPayload
+from waechter.types import PendingLink, ScanResultPayload
 
 class WorkerApi:
     def __init__(self, base_url: str, token: str):
