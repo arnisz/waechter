@@ -20,7 +20,7 @@ class ClamAVProvider(ScanProvider):
 
     def __init__(
         self,
-        socket_path: str = "/run/clamav/clamd.ctl",
+        socket_path: str = "/var/run/clamav/clamd.ctl",
         max_bytes: int = 5 * 1024 * 1024,
         max_redirects: int = 7,
         download_timeout_seconds: int = 10,

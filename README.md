@@ -61,7 +61,7 @@ Optional variables:
 ```env
 GOOGLE_SAFE_BROWSING_API_KEY=your_google_safe_browsing_api_key
 CLAMAV_ENABLED=false
-CLAMAV_SOCKET_PATH=/run/clamav/clamd.ctl
+CLAMAV_SOCKET_PATH=/var/run/clamav/clamd.ctl
 SCAN_CONCURRENCY=20
 BATCH_SIZE=50
 MIN_WAIT_MS=5000

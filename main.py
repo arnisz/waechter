@@ -24,7 +24,7 @@ async def main():
 
     providers = [HeuristicProvider()]
     if os.environ.get("CLAMAV_ENABLED", "").lower() in ("1", "true", "yes"):
-        clamav_socket_path = os.environ.get("CLAMAV_SOCKET_PATH", "/run/clamav/clamd.ctl")
+        clamav_socket_path = os.environ.get("CLAMAV_SOCKET_PATH", "/var/run/clamav/clamd.ctl")
         providers.append(ClamAVProvider(clamav_socket_path))
 
     gsb_key = os.environ.get("GOOGLE_SAFE_BROWSING_API_KEY", "")
@@ -36,7 +36,7 @@ async def main():
         "providers": len(providers),
         "provider_names": [provider.name for provider in providers],
         "clamav_enabled_env": os.environ.get("CLAMAV_ENABLED", ""),
-        "clamav_socket_path": os.environ.get("CLAMAV_SOCKET_PATH", "/run/clamav/clamd.ctl"),
+        "clamav_socket_path": os.environ.get("CLAMAV_SOCKET_PATH", "/var/run/clamav/clamd.ctl"),
     }})
     await pull_loop(providers, api)
 
