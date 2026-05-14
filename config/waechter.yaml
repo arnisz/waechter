@@ -35,6 +35,7 @@ providers:
       suspicious_tlds: [".tk", ".ml", ".ga", ".cf"]
     keyword_files:
       brand: "data/keywords/heuristic/brand_keywords.csv"
+      brand_domains: "data/keywords/heuristic/brand_domains.csv"
       path: "data/keywords/heuristic/path_keywords.csv"
       url:  "data/keywords/heuristic/url_keywords.csv"
 

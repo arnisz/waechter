@@ -8,7 +8,7 @@ import aiohttp
 
 from waechter.logger import get_logger
 from waechter.providers.base import RedirectLimitExceededError, ScanProvider
-from waechter.config_loader import provider_cfg
+from waechter.config_loader import as_bool, provider_cfg
 
 
 logger = get_logger()
@@ -29,7 +29,7 @@ class ClamAVProvider(ScanProvider):
     ):
         cfg = provider_cfg(self.name)
         self.weight = float(cfg.get("weight", 1.0))
-        self.enabled = bool(cfg.get("enabled", True))
+        self.enabled = as_bool(cfg.get("enabled", True))
 
         conn = (cfg.get("connection", {}) or {})
         limits = (cfg.get("limits", {}) or {})

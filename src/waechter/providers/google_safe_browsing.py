@@ -4,7 +4,7 @@ import json
 import aiohttp
 
 from waechter.providers.base import QuotaAwareProvider
-from waechter.config_loader import provider_cfg
+from waechter.config_loader import as_bool, provider_cfg
 
 
 class GoogleSafeBrowsingProvider(QuotaAwareProvider):
@@ -26,7 +26,7 @@ class GoogleSafeBrowsingProvider(QuotaAwareProvider):
 
         self.api_key = api_key
         # enabled flag respects config but requires an API key
-        self.enabled = bool(cfg.get("enabled", True)) and bool(self.api_key)
+        self.enabled = as_bool(cfg.get("enabled", True)) and bool(self.api_key)
 
     async def scan(self, url: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
         if not self.enabled:

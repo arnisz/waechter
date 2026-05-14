@@ -8,7 +8,7 @@ from waechter import __version__
 from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider
 from waechter.loop import pull_loop
 from waechter.logger import get_logger
-from waechter.config_loader import provider_cfg
+from waechter.config_loader import as_bool, provider_cfg
 
 load_dotenv()
 logger = get_logger()
@@ -31,7 +31,7 @@ async def main():
     if env_flag is not None:
         clamav_enabled = env_flag.lower() in ("1", "true", "yes")
     else:
-        clamav_enabled = bool(clamav_cfg.get("enabled", False))
+        clamav_enabled = as_bool(clamav_cfg.get("enabled", False), default=False)
 
     if clamav_enabled:
         clamav_socket_path = os.environ.get("CLAMAV_SOCKET_PATH", (clamav_cfg.get("connection", {}) or {}).get("socket_path", "/var/run/clamav/clamd.ctl"))
@@ -39,7 +39,7 @@ async def main():
 
     gsb_key = os.environ.get("GOOGLE_SAFE_BROWSING_API_KEY", "")
     gsb_cfg = provider_cfg("google_safe_browsing")
-    if gsb_key and bool(gsb_cfg.get("enabled", True)):
+    if gsb_key and as_bool(gsb_cfg.get("enabled", True)):
         providers.append(GoogleSafeBrowsingProvider(gsb_key))
 
     logger.info("Starting Waechter daemon", extra={"extra_data": {

@@ -6,3 +6,5 @@ path
 /update
 /signin
 /auth
+/payment
+/payments

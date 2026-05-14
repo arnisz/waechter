@@ -12,3 +12,15 @@ secure,0.5
 login,0.5
 account,0.5
 billing,0.5
+visa,0.5
+mastercard,0.5
+paypal,0.5
+google,0.8
+gmail,0.5
+facebook,0.5
+amazon,0.5
+xbox,0.5
+playstation,0.5
+apple,0.5
+ing,0.5
+hsbc,0.5

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 import asyncio
 import ipaddress
 import urllib.parse
@@ -7,12 +7,21 @@ import logging
 from datetime import datetime, timezone
 
 import aiohttp
+import idna
+import tldextract
 import whois
 
 from waechter.providers.base import ScanProvider
-from waechter.config_loader import cfg_get, provider_cfg, load_brand_keywords, load_keywords_list
+from waechter.config_loader import (
+    as_bool,
+    load_brand_domains,
+    load_brand_keywords,
+    load_keywords_list,
+    provider_cfg,
+)
 
 logger = logging.getLogger(__name__)
+_TLD_EXTRACT = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=False)
 
 class HeuristicProvider(ScanProvider):
     name = "heuristic"
@@ -21,7 +30,7 @@ class HeuristicProvider(ScanProvider):
         cfg = provider_cfg(self.name)
 
         self.weight = float(cfg.get("weight", 0.6))
-        self.enabled = bool(cfg.get("enabled", True))
+        self.enabled = as_bool(cfg.get("enabled", True))
 
         thresholds = cfg.get("thresholds", {}) or {}
         redir = (thresholds.get("redirect", {}) or {})
@@ -68,10 +77,12 @@ class HeuristicProvider(ScanProvider):
 
         kw_files = cfg.get("keyword_files", {}) or {}
         brand_fp = kw_files.get("brand", "data/keywords/heuristic/brand_keywords.csv")
+        brand_domains_fp = kw_files.get("brand_domains", "data/keywords/heuristic/brand_domains.csv")
         path_fp = kw_files.get("path", "data/keywords/heuristic/path_keywords.csv")
         url_fp = kw_files.get("url", "data/keywords/heuristic/url_keywords.csv")
 
         self.brand_keywords = load_brand_keywords(brand_fp)
+        self.brand_domains = load_brand_domains(brand_domains_fp)
         self.path_keywords = set(load_keywords_list(path_fp))
         self.url_keywords = set(load_keywords_list(url_fp))
 
@@ -80,7 +91,16 @@ class HeuristicProvider(ScanProvider):
 
         try:
             parsed = urllib.parse.urlparse(url)
-            hostname = parsed.hostname or ""
+            raw_hostname = (parsed.hostname or "").strip().strip(".").lower()
+            hostname = self._normalize_hostname(raw_hostname)
+            brand_ctx = self._brand_context(hostname)
+            official_brand_domain = bool(brand_ctx["official"])
+
+            if parsed.username or parsed.password:
+                self._add_signal(signals, "url_userinfo_present", 0.8)
+
+            if "xn--" in raw_hostname or "xn--" in hostname:
+                self._add_signal(signals, "punycode_hostname", 0.5)
 
             # 1. IP address check
             if self._is_ip_address(hostname):
@@ -88,19 +108,22 @@ class HeuristicProvider(ScanProvider):
 
             # 2. Suspicious TLDs
             if any(hostname.endswith(tld) for tld in self.suspicious_tlds):
-                self._add_signal(signals, "suspicious_tld", self.sc_suspicious_tld)
+                if not official_brand_domain:
+                    self._add_signal(signals, "suspicious_tld", self.sc_suspicious_tld)
 
             # 3. Long URLs
             if len(url) > self.long_url_chars:
                 self._add_signal(signals, "long_url", self.sc_long_url)
 
             # 4. Brand Impersonation
-            brand_score = self._check_brand_impersonation(hostname)
+            brand_score = float(brand_ctx["impersonation_score"])
             if brand_score > 0:
                 self._add_signal(signals, "brand_impersonation", brand_score)
 
             # 5. Path Heuristics
             path_score = self._check_path_heuristics(parsed.path)
+            if official_brand_domain:
+                path_score *= 0.1
             if path_score > 0:
                 self._add_signal(signals, "suspicious_path", path_score)
 
@@ -110,22 +133,28 @@ class HeuristicProvider(ScanProvider):
 
             # 7. URL Keywords
             url_kw_score = self._check_url_keywords(url)
+            if official_brand_domain:
+                url_kw_score *= 0.1
             if url_kw_score > 0:
                 self._add_signal(signals, "suspicious_url_keywords", url_kw_score)
 
             # 8. Domain Age (WHOIS)
-            if not self._is_ip_address(hostname):
+            if not official_brand_domain and not self._is_ip_address(hostname):
                 whois_score = await self._check_whois_age(hostname)
                 if whois_score > 0:
                     self._add_signal(signals, "whois_age_suspicious", whois_score)
 
             # 9. Redirects & Mismatch
             redirect_score = await self._redirect_score(url, parsed, session, signals)
+            if official_brand_domain:
+                redirect_score *= 0.3
             if redirect_score > 0:
                 self._add_signal(signals, "redirect_suspicious", redirect_score)
 
             # 10. HTML Content
             html_score = await self._analyze_html_content(url, session)
+            if official_brand_domain:
+                html_score *= 0.1
             if html_score > 0:
                 self._add_signal(signals, "malicious_html_content", html_score)
 
@@ -148,13 +177,74 @@ class HeuristicProvider(ScanProvider):
         except ValueError:
             return False
 
-    def _check_brand_impersonation(self, hostname: str) -> float:
-        hostname_lower = hostname.lower()
-        max_score = 0.0
+    def _normalize_hostname(self, hostname: str) -> str:
+        hostname = hostname.strip().strip(".").lower()
+
+        try:
+            return idna.decode(hostname.encode("ascii")).lower()
+        except Exception:
+            return hostname
+
+    def _get_registrable_domain(self, hostname: str) -> str:
+        hostname = self._normalize_hostname(hostname)
+        ext = _TLD_EXTRACT(hostname)
+
+        if not ext.domain or not ext.suffix:
+            return hostname
+
+        return f"{ext.domain}.{ext.suffix}".lower()
+
+    def _is_official_brand_domain(self, brand: str, hostname: str) -> bool:
+        hostname = self._normalize_hostname(hostname)
+        registrable_domain = self._get_registrable_domain(hostname)
+
+        for entry in self.brand_domains.get(brand, []):
+            domain = entry.domain.lower()
+
+            if entry.match_mode == "etld1" and registrable_domain == domain:
+                return True
+            if entry.match_mode == "exact" and hostname == domain:
+                return True
+
+        return False
+
+    def _brand_context(self, hostname: str) -> Dict[str, Any]:
+        hostname_lower = self._normalize_hostname(hostname)
+        matched_brands: List[Tuple[str, float]] = []
+
         for keyword, score in self.brand_keywords.items():
-            if keyword in hostname_lower:
-                max_score = max(max_score, score)
-        return max_score
+            keyword = keyword.lower().strip()
+            if keyword and keyword in hostname_lower:
+                matched_brands.append((keyword, float(score)))
+
+        if not matched_brands:
+            return {
+                "matched": False,
+                "official": False,
+                "impersonation_score": 0.0,
+                "brands": [],
+            }
+
+        official_brands = {
+            brand
+            for brand, _ in matched_brands
+            if self._is_official_brand_domain(brand, hostname_lower)
+        }
+        max_impersonation_score = max(
+            (
+                score
+                for brand, score in matched_brands
+                if brand not in official_brands
+            ),
+            default=0.0,
+        )
+
+        return {
+            "matched": True,
+            "official": bool(official_brands) and max_impersonation_score == 0.0,
+            "impersonation_score": max_impersonation_score,
+            "brands": [brand for brand, _ in matched_brands],
+        }
 
     def _check_path_heuristics(self, path: str) -> float:
         path_lower = path.lower()
@@ -171,8 +261,7 @@ class HeuristicProvider(ScanProvider):
     async def _check_whois_age(self, hostname: str) -> float:
         def fetch_whois():
             try:
-                domain_parts = hostname.split('.')
-                domain = ".".join(domain_parts[-2:]) if len(domain_parts) >= 2 else hostname
+                domain = self._get_registrable_domain(hostname)
                 return whois.whois(domain)
             except Exception:
                 return None
@@ -204,7 +293,9 @@ class HeuristicProvider(ScanProvider):
         if parsed.scheme not in ("http", "https"):
             return 0.0
 
-        original_hostname = parsed.hostname or ""
+        original_hostname = self._normalize_hostname(parsed.hostname or "")
+        original_brand_ctx = self._brand_context(original_hostname)
+        matched_brands = list(original_brand_ctx.get("brands", []))
         timeout = aiohttp.ClientTimeout(total=5)
         score = 0.0
 
@@ -243,13 +334,21 @@ class HeuristicProvider(ScanProvider):
             score += self.redir_warning
 
         if len(redirect_urls) > 1:
-            final_redirect_hostname = urllib.parse.urlparse(redirect_urls[-1]).hostname or ""
+            final_redirect_hostname = self._normalize_hostname(urllib.parse.urlparse(redirect_urls[-1]).hostname or "")
             if final_redirect_hostname != original_hostname:
-                if self._get_base_domain(final_redirect_hostname) != self._get_base_domain(original_hostname):
+                final_is_same_brand_family = self._hostname_belongs_to_any_matched_brand(
+                    final_redirect_hostname,
+                    matched_brands,
+                )
+                if (
+                    not final_is_same_brand_family
+                    and self._get_registrable_domain(final_redirect_hostname)
+                    != self._get_registrable_domain(original_hostname)
+                ):
                     self._add_signal(signals, "redirect_domain_mismatch", self.redir_domain_mismatch)
 
             for redirect_url in redirect_urls[1:]:
-                redirect_hostname = urllib.parse.urlparse(redirect_url).hostname or ""
+                redirect_hostname = self._normalize_hostname(urllib.parse.urlparse(redirect_url).hostname or "")
                 if redirect_hostname != original_hostname and self._is_ip_address(redirect_hostname):
                     score += self.redir_to_ip
                     break
@@ -284,6 +383,8 @@ class HeuristicProvider(ScanProvider):
 
         return score
 
-    def _get_base_domain(self, hostname: str) -> str:
-        parts = hostname.split('.')
-        return ".".join(parts[-2:]) if len(parts) >= 2 else hostname
+    def _hostname_belongs_to_any_matched_brand(self, hostname: str, brands: List[str]) -> bool:
+        for brand in brands:
+            if self._is_official_brand_domain(brand, hostname):
+                return True
+        return False

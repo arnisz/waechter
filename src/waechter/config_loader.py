@@ -1,9 +1,10 @@
 import os
 import csv
 import logging
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List
 
 try:
     import yaml  # type: ignore
@@ -11,6 +12,13 @@ except Exception:  # pragma: no cover - optional at test time if not needed
     yaml = None  # lazy failure if actually used
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class BrandDomain:
+    brand: str
+    domain: str
+    match_mode: str
 
 
 def _project_root() -> Path:
@@ -64,6 +72,16 @@ def cfg_get(path: str, default: Any = None) -> Any:
 
 def provider_cfg(name: str) -> Dict[str, Any]:
     return cfg_get(f"providers.{name}", {}) or {}
+
+
+def as_bool(value: Any, default: bool = True) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    if value is None:
+        return default
+    return bool(value)
 
 
 def _keywords_dir() -> Path:
@@ -137,6 +155,31 @@ def load_brand_keywords(file_path: str | Path) -> Dict[str, float]:
     except Exception as e:  # pragma: no cover - defensive
         logger.warning("Failed to parse brand keywords %s: %s", str(p), e)
     return kws
+
+
+@lru_cache(maxsize=64)
+def load_brand_domains(file_path: str | Path) -> Dict[str, List[BrandDomain]]:
+    p = _resolve_path(file_path)
+    if not p.exists():
+        logger.warning("Brand domains CSV not found: %s", str(p))
+        return {}
+
+    domains: Dict[str, List[BrandDomain]] = {}
+    for row in _iter_rows(p):
+        brand = (row.get("brand") or "").strip().lower()
+        domain = (row.get("domain") or "").strip().strip(".").lower()
+        match_mode = (row.get("match_mode") or "etld1").strip().lower()
+
+        if not brand or not domain:
+            continue
+        if match_mode not in {"etld1", "exact"}:
+            raise ValueError(f"Invalid match_mode for {brand}/{domain}: {match_mode}")
+
+        domains.setdefault(brand, []).append(
+            BrandDomain(brand=brand, domain=domain, match_mode=match_mode)
+        )
+
+    return domains
 
 
 @lru_cache(maxsize=64)

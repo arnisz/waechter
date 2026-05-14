@@ -72,6 +72,7 @@ DEFAULT_CONFIG_YAML = dedent(
           suspicious_tlds: [".tk", ".ml", ".ga", ".cf"]
         keyword_files:
           brand: "data/keywords/heuristic/brand_keywords.csv"
+          brand_domains: "data/keywords/heuristic/brand_domains.csv"
           path: "data/keywords/heuristic/path_keywords.csv"
           url:  "data/keywords/heuristic/url_keywords.csv"
 
@@ -115,8 +116,40 @@ DEFAULT_BRAND_CSV = dedent(
     login,0.5
     account,0.5
     billing,0.5
+    visa,0.5
+    mastercard,0.5
+    google,0.8
+    gmail,0.5
+    facebook,0.5
+    amazon,0.5
+    xbox,0.5
+    playstation,0.5
+    ing,0.5
+    hsbc,0.5
     """
 ).strip() + "\n"
+
+
+DEFAULT_BRAND_DOMAINS_CSV = dedent(
+    """
+    brand,domain,match_mode
+    amazon,amazon.de,etld1
+    amazon,amazon.com,etld1
+    amazon,amazon.co.uk,etld1
+    amazon,pay.amazon.de,exact
+    amazon,payments.amazon.de,exact
+    paypal,paypal.com,etld1
+    paypal,paypal.de,etld1
+    microsoft,microsoft.com,etld1
+    microsoft,office.com,etld1
+    microsoft,live.com,etld1
+    apple,apple.com,etld1
+    google,google.com,etld1
+    google,gmail.com,etld1
+    facebook,facebook.com,etld1
+    """
+).strip() + "\n"
+
 
 DEFAULT_PATH_CSV = dedent(
     """
@@ -128,6 +161,8 @@ DEFAULT_PATH_CSV = dedent(
     /update
     /signin
     /auth
+    /payment
+    /payments
     """
 ).strip() + "\n"
 
@@ -142,6 +177,8 @@ DEFAULT_URL_CSV = dedent(
     identity
     unlock
     confirm
+    payment
+    payments
     """
 ).strip() + "\n"
 
@@ -197,11 +234,15 @@ def ensure_directories_and_files() -> None:
         info(f"Konfigurationsdatei vorhanden: {cfg_file}")
 
     brand = data_dir / "brand_keywords.csv"
+    brand_domains = data_dir / "brand_domains.csv"
     path_csv = data_dir / "path_keywords.csv"
     url_csv = data_dir / "url_keywords.csv"
     if not brand.exists():
         brand.write_text(DEFAULT_BRAND_CSV, encoding="utf-8")
         info(f"Brand-CSV erstellt: {brand}")
+    if not brand_domains.exists():
+        brand_domains.write_text(DEFAULT_BRAND_DOMAINS_CSV, encoding="utf-8")
+        info(f"Brand-Domains-CSV erstellt: {brand_domains}")
     if not path_csv.exists():
         path_csv.write_text(DEFAULT_PATH_CSV, encoding="utf-8")
         info(f"Path-CSV erstellt: {path_csv}")
@@ -237,8 +278,11 @@ def sanitize_requirements_file(src: Path, dst: Path) -> list[str]:
         warn("requirements.txt nicht gefunden – installiere minimale Abhängigkeiten.")
         lines = [
             "aiohttp>=3.8,<4",
+            "idna>=3.0",
             "python-dotenv>=1.0,<2",
             "python-whois>=0.9",
+            "PyYAML>=6.0",
+            "tldextract>=5.0,<6",
         ]
         dst.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return lines
@@ -282,6 +326,12 @@ def sanitize_requirements_file(src: Path, dst: Path) -> list[str]:
         clean_lines.append("python-dotenv>=1.0,<2")
     if not any("python-whois" in l.lower() for l in clean_lines):
         clean_lines.append("python-whois>=0.9")
+    if not any(l.lower().startswith("pyyaml") for l in clean_lines):
+        clean_lines.append("PyYAML>=6.0")
+    if not any(l.lower().startswith("idna") for l in clean_lines):
+        clean_lines.append("idna>=3.0")
+    if not any(l.lower().startswith("tldextract") for l in clean_lines):
+        clean_lines.append("tldextract>=5.0,<6")
 
     dst.write_text("\n".join(clean_lines) + "\n", encoding="utf-8")
     return clean_lines
@@ -399,7 +449,7 @@ def main() -> int:
         clean_lines = sanitize_requirements_file(REQUIREMENTS_FILE, SANITIZED_REQUIREMENTS_FILE)
         if not clean_lines:
             warn("Keine gültigen Anforderungen gefunden – setze Minimalset.")
-            SANITIZED_REQUIREMENTS_FILE.write_text("aiohttp\npython-dotenv\npython-whois\n", encoding="utf-8")
+            SANITIZED_REQUIREMENTS_FILE.write_text("aiohttp\nidna\npython-dotenv\npython-whois\nPyYAML\ntldextract\n", encoding="utf-8")
         pip_install(py, SANITIZED_REQUIREMENTS_FILE)
     except subprocess.CalledProcessError as e:
         error(f"Paketinstallation fehlgeschlagen (Exit {e.returncode}). Sie können es später erneut versuchen: {py} -m pip install -r {SANITIZED_REQUIREMENTS_FILE}")

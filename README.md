@@ -302,8 +302,26 @@ Always enabled. Scores simple URL risk signals:
 - raw IP hostnames,
 - suspicious TLDs,
 - very long URLs,
+- brand names on non-official domains,
+- URL userinfo tricks such as `https://www.amazon.de@evil.com/login`,
+- punycode hostnames,
 - long redirect chains,
 - redirects to raw IP addresses.
+
+Brand checks use two CSV files:
+
+- `data/keywords/heuristic/brand_keywords.csv` lists brand keywords and their impersonation score.
+- `data/keywords/heuristic/brand_domains.csv` lists official domains for each brand.
+
+`brand_domains.csv` has this format:
+
+```csv
+brand,domain,match_mode
+amazon,amazon.de,etld1
+amazon,pay.amazon.de,exact
+```
+
+`match_mode=etld1` matches the registrable domain, for example `www.amazon.de` -> `amazon.de`. `match_mode=exact` matches only the exact hostname. Known official brand domains reduce soft context signals such as login, payment, and form keywords, but they are not a full whitelist.
 
 ### Google Safe Browsing Provider
 
