@@ -7,6 +7,8 @@ APP_DIR="/opt/waechter"
 ENV_DIR="/etc/waechter"
 ENV_FILE="${ENV_DIR}/waechter.env"
 SCRIPT_INSTALL_PATH="/usr/local/sbin/waechter.sh"
+# Pfad des Installer-Scripts innerhalb des Repos (für Self-Update)
+SCRIPT_REPO_RELATIVE_PATH="waechter.sh"
 REPO_URL="https://github.com/arnisz/waechter.git"
 BRANCH="master"
 
@@ -81,9 +83,17 @@ fi
 if [[ -f "${ENV_FILE}" ]]; then
   echo "Existing configuration found in ${ENV_FILE}. Loading variables..."
   while IFS= read -r line || [[ -n "$line" ]]; do
-    # FIX: eval ersetzt durch sicheres Regex-Matching (verhindert Code-Injection)
+    # Bereinigt Windows-Zeilenenden (\r) und umgebende Whitespaces
+    line="${line//$'\r'/}"
+    line="${line#"${line%%[! ]*}"}"
+    # Matcht KEY=VALUE; eval-frei (verhindert Code-Injection)
     if [[ "$line" =~ ^([A-Z_][A-Z0-9_]*)=(.*)$ ]]; then
-      export "${BASH_REMATCH[1]}"="${BASH_REMATCH[2]}"
+      local_val="${BASH_REMATCH[2]}"
+      # FIX: Umschließende einfache oder doppelte Anführungszeichen entfernen,
+      # damit z.B. WAECHTER_TOKEN="abc" nicht als '"abc"' in Python ankommt
+      local_val="${local_val%\"}" ; local_val="${local_val#\"}"
+      local_val="${local_val%\'}" ; local_val="${local_val#\'}"
+      export "${BASH_REMATCH[1]}"="${local_val}"
     fi
   done < "${ENV_FILE}"
 fi
@@ -140,11 +150,17 @@ detect_clamav_socket() {
 
 wait_for_clamav_socket() {
   local socket_path="$1"
-  for _ in {1..10}; do
+  local timeout="${2:-10}"
+  local elapsed=0
+  while [[ "${elapsed}" -lt "${timeout}" ]]; do
     if [[ -S "${socket_path}" ]]; then
       return 0
     fi
+    if (( elapsed % 10 == 0 && elapsed > 0 )); then
+      echo "  Waiting for ClamAV socket... (${elapsed}/${timeout}s)"
+    fi
     sleep 1
+    (( elapsed++ )) || true
   done
   return 1
 }
@@ -247,8 +263,16 @@ if [[ "${CLAMAV_ENABLED}" == "true" ]]; then
 
   CLAMAV_SOCKET_PATH="$(detect_clamav_socket)"
 
-  if ! wait_for_clamav_socket "${CLAMAV_SOCKET_PATH}"; then
-    echo "WARNING: ClamAV socket (${CLAMAV_SOCKET_PATH}) is not ready yet."
+  # FIX: Erststart braucht bis zu 90s zum Laden der Signaturdatenbank;
+  # bei einem bereits laufenden Daemon reichen 10s (Standard)
+  clamav_timeout=10
+  if [[ "${RESTART_NEEDED}" == "true" ]]; then
+    echo "Waiting up to 90s for ClamAV to load signature database on first start..."
+    clamav_timeout=90
+  fi
+
+  if ! wait_for_clamav_socket "${CLAMAV_SOCKET_PATH}" "${clamav_timeout}"; then
+    echo "WARNING: ClamAV socket (${CLAMAV_SOCKET_PATH}) is not ready after ${clamav_timeout}s."
   fi
 
   # FIX: Gruppenlogik nach User-Erstellung (Phase 2), kein Race-Condition mehr
@@ -287,6 +311,15 @@ if [[ "${IS_INSTALLED}" == "true" ]]; then
     echo "New update found! Upgrading from ${LOCAL_COMMIT} to ${REMOTE_COMMIT}..."
     sudo -u "${APP_USER}" git reset --hard "origin/${BRANCH}"
     sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m pip install -e "${APP_DIR}"
+
+    # FIX: Self-Update — Installer-Script aus dem Repo über sich selbst schreiben,
+    # damit Bugfixes am Skript beim nächsten Timer-Durchlauf aktiv sind.
+    repo_script="${APP_DIR}/${SCRIPT_REPO_RELATIVE_PATH}"
+    if [[ -f "${repo_script}" ]]; then
+      echo "Self-update: refreshing installer at ${SCRIPT_INSTALL_PATH}..."
+      install -m 0750 -o root -g root "${repo_script}" "${SCRIPT_INSTALL_PATH}"
+    fi
+
     RESTART_NEEDED=true
   else
     echo "Code base is already up to date."
