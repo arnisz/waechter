@@ -6,10 +6,74 @@ APP_USER="waechter"
 APP_DIR="/opt/waechter"
 ENV_DIR="/etc/waechter"
 ENV_FILE="${ENV_DIR}/waechter.env"
+SCRIPT_INSTALL_PATH="/usr/local/sbin/waechter.sh"
 REPO_URL="https://github.com/arnisz/waechter.git"
 BRANCH="master"
 
 RESTART_NEEDED=false
+
+# ==============================================================================
+# ROOT-CHECK
+# ==============================================================================
+if [[ "${EUID}" -ne 0 ]]; then
+  echo "ERROR: This script must be run as root."
+  exit 1
+fi
+
+# ==============================================================================
+# ARGUMENT-PARSING
+# ==============================================================================
+MODE="${1:-auto}"
+
+# ==============================================================================
+# MODUS: UNINSTALL
+# ==============================================================================
+if [[ "${MODE}" == "uninstall" ]]; then
+  echo "==> Starting uninstallation of ${APP_NAME}..."
+
+  # Hauptdienst stoppen und deaktivieren
+  for unit in "${APP_NAME}.service" "${APP_NAME}-update.timer" "${APP_NAME}-update.service"; do
+    if systemctl is-active --quiet "${unit}" 2>/dev/null; then
+      echo "Stopping ${unit}..."
+      systemctl stop "${unit}"
+    fi
+    if systemctl is-enabled --quiet "${unit}" 2>/dev/null; then
+      systemctl disable "${unit}"
+    fi
+    rm -f "/etc/systemd/system/${unit}"
+  done
+
+  systemctl daemon-reload
+  systemctl reset-failed 2>/dev/null || true
+
+  # Applikationsverzeichnis entfernen
+  if [[ -d "${APP_DIR}" ]]; then
+    rm -rf "${APP_DIR}"
+    echo "Removed ${APP_DIR}"
+  fi
+
+  # Konfigurationsverzeichnis entfernen
+  if [[ -d "${ENV_DIR}" ]]; then
+    rm -rf "${ENV_DIR}"
+    echo "Removed ${ENV_DIR}"
+  fi
+
+  # Installiertes Script entfernen
+  if [[ -f "${SCRIPT_INSTALL_PATH}" ]]; then
+    rm -f "${SCRIPT_INSTALL_PATH}"
+    echo "Removed ${SCRIPT_INSTALL_PATH}"
+  fi
+
+  # System-User entfernen
+  if id "${APP_USER}" &>/dev/null; then
+    userdel "${APP_USER}"
+    echo "Removed system user '${APP_USER}'"
+  fi
+
+  echo ""
+  echo "==> Uninstallation complete."
+  exit 0
+fi
 
 # ==============================================================================
 # PHASE 1: Existierende Konfiguration laden (falls vorhanden)
@@ -17,13 +81,14 @@ RESTART_NEEDED=false
 if [[ -f "${ENV_FILE}" ]]; then
   echo "Existing configuration found in ${ENV_FILE}. Loading variables..."
   while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ ! "$line" =~ ^# && "$line" =~ = ]]; then
-      eval "export $line"
+    # FIX: eval ersetzt durch sicheres Regex-Matching (verhindert Code-Injection)
+    if [[ "$line" =~ ^([A-Z_][A-Z0-9_]*)=(.*)$ ]]; then
+      export "${BASH_REMATCH[1]}"="${BASH_REMATCH[2]}"
     fi
   done < "${ENV_FILE}"
 fi
 
-# Fallbacks definieren, um 'set -u' (Nounset) zu befriedigen
+# Fallbacks
 WORKER_BASE_URL="${WORKER_BASE_URL:-}"
 WAECHTER_TOKEN="${WAECHTER_TOKEN:-}"
 GOOGLE_SAFE_BROWSING_API_KEY="${GOOGLE_SAFE_BROWSING_API_KEY:-}"
@@ -47,7 +112,7 @@ fi
 if [[ "${IS_INSTALLED}" == "false" ]]; then
   if [[ -z "${WORKER_BASE_URL}" || -z "${WAECHTER_TOKEN}" ]]; then
     echo "ERROR: WORKER_BASE_URL and WAECHTER_TOKEN are required for a fresh installation!"
-    echo "Usage: WORKER_BASE_URL=https://... WAECHTER_TOKEN=... ./waechter.sh"
+    echo "Usage: WORKER_BASE_URL=https://... WAECHTER_TOKEN=... $0"
     exit 1
   fi
 fi
@@ -87,6 +152,10 @@ wait_for_clamav_socket() {
 write_env_file() {
   echo "Writing environment configuration to ${ENV_FILE}..."
   install -d -m 0750 -o root -g "${APP_USER}" "${ENV_DIR}"
+  # FIX: Backup der bestehenden Konfiguration vor dem Überschreiben
+  if [[ -f "${ENV_FILE}" ]]; then
+    cp "${ENV_FILE}" "${ENV_FILE}.bak"
+  fi
   cat > "${ENV_FILE}" <<EOF
 WORKER_BASE_URL=${WORKER_BASE_URL}
 WAECHTER_TOKEN=${WAECHTER_TOKEN}
@@ -105,21 +174,73 @@ EOF
   chmod 0640 "${ENV_FILE}"
 }
 
+install_update_timer() {
+  echo "Installing systemd auto-update timer..."
+
+  # Script in stabilen Pfad kopieren, damit der Timer es immer findet
+  install -m 0750 -o root -g root "$(realpath "$0")" "${SCRIPT_INSTALL_PATH}"
+
+  cat > "/etc/systemd/system/${APP_NAME}-update.service" <<EOF
+[Unit]
+Description=Waechter auto-update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=${SCRIPT_INSTALL_PATH}
+StandardOutput=journal
+StandardError=journal
+EOF
+
+  cat > "/etc/systemd/system/${APP_NAME}-update.timer" <<EOF
+[Unit]
+Description=Daily auto-update timer for Waechter
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable --now "${APP_NAME}-update.timer"
+  echo "Auto-update timer enabled (runs daily, randomized by up to 1h)."
+}
+
 # ==============================================================================
-# PHASE 2: Core-Pakete & Edge Cases (ClamAV) absichern
+# PHASE 2: System-User erstellen
+# FIX: Vor der ClamAV-Gruppenlogik, damit usermod -aG clamav garantiert klappt
 # ==============================================================================
-echo "Checking system dependencies..."
-# Basis-Pakete sicherstellen (tut auch beim Update nicht weh)
-if ! dpkg -s git python3-venv python3-pip >/dev/null 2>&1; then
-  apt-get update && apt-get install -y git ca-certificates python3 python3-venv python3-pip
+if ! id "${APP_USER}" &>/dev/null; then
+  useradd --system --home "${APP_DIR}" --create-home --shell /usr/sbin/nologin "${APP_USER}"
 fi
 
-# Edge Case: ClamAV wurde nachträglich aktiviert oder deinstalliert
+# ==============================================================================
+# PHASE 3: Core-Pakete & Edge Cases (ClamAV) absichern
+# ==============================================================================
+echo "Checking system dependencies..."
+
+# FIX: Pakete einzeln prüfen statt alle auf einmal (dpkg -s <multi> unzuverlässig)
+MISSING_PKGS=()
+for pkg in git ca-certificates python3 python3-venv python3-pip; do
+  dpkg -s "$pkg" &>/dev/null || MISSING_PKGS+=("$pkg")
+done
+if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
+  apt-get update && apt-get install -y "${MISSING_PKGS[@]}"
+fi
+
+# Edge Case: ClamAV
 if [[ "${CLAMAV_ENABLED}" == "true" ]]; then
-  if ! dpkg -s clamav-daemon >/dev/null 2>&1 || ! systemctl is-active --quiet clamav-daemon; then
+  if ! dpkg -s clamav-daemon &>/dev/null || ! systemctl is-active --quiet clamav-daemon; then
     echo "Edge case detected: ClamAV is enabled, but daemon is missing or inactive. Fixing..."
-    apt-get update && apt-get install -y clamav clamav-daemon
+    # FIX: clamav-freshclam explizit installieren und aktivieren
+    apt-get update && apt-get install -y clamav clamav-daemon clamav-freshclam
     systemctl daemon-reload
+    systemctl enable --now clamav-freshclam
     systemctl enable --now clamav-daemon
     RESTART_NEEDED=true
   fi
@@ -129,40 +250,41 @@ if [[ "${CLAMAV_ENABLED}" == "true" ]]; then
   if ! wait_for_clamav_socket "${CLAMAV_SOCKET_PATH}"; then
     echo "WARNING: ClamAV socket (${CLAMAV_SOCKET_PATH}) is not ready yet."
   fi
-fi
 
-# System-User absichern
-if ! id "${APP_USER}" >/dev/null 2>&1; then
-  useradd --system --home "${APP_DIR}" --create-home --shell /usr/sbin/nologin "${APP_USER}"
-fi
-
-# Edge Case: User-Gruppe für ClamAV-Zugriff korrigieren
-if [[ "${CLAMAV_ENABLED}" == "true" ]] && getent group clamav >/dev/null 2>&1; then
-  if ! id -nG "${APP_USER}" | grep -qw "clamav"; then
-    echo "Adding ${APP_USER} to clamav group..."
-    usermod -aG clamav "${APP_USER}"
-    RESTART_NEEDED=true
+  # FIX: Gruppenlogik nach User-Erstellung (Phase 2), kein Race-Condition mehr
+  if getent group clamav &>/dev/null; then
+    if ! id -nG "${APP_USER}" | grep -qw "clamav"; then
+      echo "Adding ${APP_USER} to clamav group..."
+      usermod -aG clamav "${APP_USER}"
+      RESTART_NEEDED=true
+    fi
   fi
 fi
 
 # ==============================================================================
-# PHASE 3: Weichenstellung (Update vs. Neuinstallation)
+# PHASE 4: Weichenstellung (Update vs. Neuinstallation)
 # ==============================================================================
 if [[ "${IS_INSTALLED}" == "true" ]]; then
   # ----------------------------------------------------------------------------
   # MODUS: AUTOMATISCHES UPDATE
   # ----------------------------------------------------------------------------
   echo "Target system detected: Switching to UPDATE mode."
-  cd "${APP_DIR}"
 
-  # Git-Befehle sicher im Kontext des Besitzers ausführen (verhindert dubious ownership)
+  # FIX: Expliziter Sanity-Check — Service-Datei vorhanden, aber APP_DIR fehlt
+  if [[ ! -d "${APP_DIR}/.git" ]]; then
+    echo "ERROR: Service file exists but ${APP_DIR} is missing or not a git repo."
+    echo "       Run '${SCRIPT_INSTALL_PATH} uninstall' and reinstall."
+    exit 1
+  fi
+
+  cd "${APP_DIR}"
   sudo -u "${APP_USER}" git fetch origin "${BRANCH}"
 
   LOCAL_COMMIT=$(sudo -u "${APP_USER}" git rev-parse HEAD)
   REMOTE_COMMIT=$(sudo -u "${APP_USER}" git rev-parse "origin/${BRANCH}")
 
   if [[ "${LOCAL_COMMIT}" != "${REMOTE_COMMIT}" ]]; then
-    echo "New update found on GitHub! Upgrading from ${LOCAL_COMMIT} to ${REMOTE_COMMIT}..."
+    echo "New update found! Upgrading from ${LOCAL_COMMIT} to ${REMOTE_COMMIT}..."
     sudo -u "${APP_USER}" git reset --hard "origin/${BRANCH}"
     sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m pip install -e "${APP_DIR}"
     RESTART_NEEDED=true
@@ -170,9 +292,11 @@ if [[ "${IS_INSTALLED}" == "true" ]]; then
     echo "Code base is already up to date."
   fi
 
-  # Falls Änderungen an ClamAV oder Code stattgefunden haben: Service-Refresh
+  # FIX: Env-Datei immer schreiben — auch wenn keine Code-Änderungen vorliegen,
+  # können per Env-Variable neue Werte übergeben worden sein (z.B. neuer Token).
+  write_env_file
+
   if [[ "${RESTART_NEEDED}" == "true" ]]; then
-    write_env_file
     echo "Restarting ${APP_NAME} service to load changes..."
     systemctl restart "${APP_NAME}.service"
     echo "Update complete."
@@ -218,10 +342,12 @@ EnvironmentFile=${ENV_FILE}
 ExecStart=${APP_DIR}/.venv/bin/python ${APP_DIR}/main.py
 Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
+ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=${APP_DIR} ${ENV_DIR}
 
@@ -231,5 +357,13 @@ EOF
 
   systemctl daemon-reload
   systemctl enable --now "${APP_NAME}.service"
-  echo "Fresh installation completed successfully."
+
+  install_update_timer
+
+  echo ""
+  echo "==> Fresh installation completed successfully."
+  echo "    Service status : systemctl status ${APP_NAME}"
+  echo "    Live logs      : journalctl -u ${APP_NAME} -f"
+  echo "    Update timer   : systemctl status ${APP_NAME}-update.timer"
+  echo "    Uninstall      : ${SCRIPT_INSTALL_PATH} uninstall"
 fi
