@@ -65,7 +65,7 @@ On Windows PowerShell:
 python main.py
 ```
 
-Settings can be changed later in `.env` and `config/waechter.yaml`.
+Settings can be changed later in `.env` and `config/waechter.yaml`. **Note:** Environment variables (like `CLAMAV_ENABLED`) take precedence over YAML configuration files.
 
 ### Manual Installation
 

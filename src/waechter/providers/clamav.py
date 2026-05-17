@@ -26,10 +26,15 @@ class ClamAVProvider(ScanProvider):
         max_redirects: int | None = None,
         download_timeout_seconds: int | None = None,
         scan_timeout_seconds: int | None = None,
+        enabled: bool | None = None,
     ):
         cfg = provider_cfg(self.name)
         self.weight = float(cfg.get("weight", 1.0))
-        self.enabled = as_bool(cfg.get("enabled", True))
+
+        if enabled is not None:
+            self.enabled = enabled
+        else:
+            self.enabled = as_bool(cfg.get("enabled", True))
 
         conn = (cfg.get("connection", {}) or {})
         limits = (cfg.get("limits", {}) or {})
@@ -59,6 +64,12 @@ class ClamAVProvider(ScanProvider):
                 "max_redirects": self.max_redirects,
             }})
             return {"raw_score": 0.9, "raw_response": f"skipped: more_than_{self.max_redirects}_redirects"}
+        except Exception as e:
+            logger.error(f"clamav_download_error", extra={"extra_data": {
+                "url": url,
+                "error": str(e),
+            }})
+            raise e
 
         logger.debug("clamav_download_complete", extra={"extra_data": {
             "url": url,
@@ -67,7 +78,16 @@ class ClamAVProvider(ScanProvider):
             "max_bytes": self.max_bytes,
             **download_info,
         }})
-        result = await asyncio.to_thread(self._scan_bytes_with_clamd, data)
+
+        try:
+            result = await asyncio.to_thread(self._scan_bytes_with_clamd, data)
+        except Exception as e:
+            logger.error(f"clamav_scan_error", extra={"extra_data": {
+                "url": url,
+                "error": str(e),
+            }})
+            raise e
+
         logger.debug("clamav_scan_response", extra={"extra_data": {
             "url": url,
             "downloaded_bytes": len(data),

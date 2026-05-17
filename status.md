@@ -13,6 +13,8 @@ Die Anforderungen aus dem überarbeiteten Pflichtenheft Version 1.1 wurden analy
 - [x] Implementierung des asynchronen Pull-Loops (asyncio Semaphore, exp. Backoff) `src/loop.py`
 - [x] Hauptskript `main.py`
 - [x] Unittests geschrieben (`tests/test_aggregation.py`, `tests/test_providers.py`) und erfolgreich durchgelaufen.
+- [x] Fix: ClamAVProvider respektiert nun die Umgebungsvariable `CLAMAV_ENABLED` (Vorrang vor YAML-Config).
+- [x] Verbesserung: Explizites Logging von Exceptions in ClamAVProvider bei Download- oder Scan-Fehlern.
 
 ## In Arbeit
 - Das Basis MVP (Phase 1-4) ist fertig.

@@ -35,7 +35,7 @@ async def main():
 
     if clamav_enabled:
         clamav_socket_path = os.environ.get("CLAMAV_SOCKET_PATH", (clamav_cfg.get("connection", {}) or {}).get("socket_path", "/var/run/clamav/clamd.ctl"))
-        providers.append(ClamAVProvider(socket_path=clamav_socket_path))
+        providers.append(ClamAVProvider(socket_path=clamav_socket_path, enabled=True))
 
     gsb_key = os.environ.get("GOOGLE_SAFE_BROWSING_API_KEY", "")
     gsb_cfg = provider_cfg("google_safe_browsing")
