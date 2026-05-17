@@ -9,9 +9,23 @@ ENV_FILE="${ENV_DIR}/waechter.env"
 REPO_URL="https://github.com/arnisz/waechter.git"
 BRANCH="master"
 
-: "${WORKER_BASE_URL:?WORKER_BASE_URL is required}"
-: "${WAECHTER_TOKEN:?WAECHTER_TOKEN is required}"
+RESTART_NEEDED=false
 
+# ==============================================================================
+# PHASE 1: Existierende Konfiguration laden (falls vorhanden)
+# ==============================================================================
+if [[ -f "${ENV_FILE}" ]]; then
+  echo "Existing configuration found in ${ENV_FILE}. Loading variables..."
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ ! "$line" =~ ^# && "$line" =~ = ]]; then
+      eval "export $line"
+    fi
+  done < "${ENV_FILE}"
+fi
+
+# Fallbacks definieren, um 'set -u' (Nounset) zu befriedigen
+WORKER_BASE_URL="${WORKER_BASE_URL:-}"
+WAECHTER_TOKEN="${WAECHTER_TOKEN:-}"
 GOOGLE_SAFE_BROWSING_API_KEY="${GOOGLE_SAFE_BROWSING_API_KEY:-}"
 CLAMAV_ENABLED="${CLAMAV_ENABLED:-false}"
 CLAMAV_SOCKET_PATH="${CLAMAV_SOCKET_PATH:-}"
@@ -23,124 +37,57 @@ LOG_LEVEL="${LOG_LEVEL:-INFO}"
 THRESHOLD_WARNING="${THRESHOLD_WARNING:-0.70}"
 THRESHOLD_BLOCK="${THRESHOLD_BLOCK:-0.95}"
 
+# Feststellen, ob es sich um eine Neuinstallation oder ein Update handelt
+IS_INSTALLED=false
+if [[ -f "/etc/systemd/system/${APP_NAME}.service" ]]; then
+  IS_INSTALLED=true
+fi
+
+# Validation: Token und URL werden bei Neuinstallation zwingend benötigt
+if [[ "${IS_INSTALLED}" == "false" ]]; then
+  if [[ -z "${WORKER_BASE_URL}" || -z "${WAECHTER_TOKEN}" ]]; then
+    echo "ERROR: WORKER_BASE_URL and WAECHTER_TOKEN are required for a fresh installation!"
+    echo "Usage: WORKER_BASE_URL=https://... WAECHTER_TOKEN=... ./waechter.sh"
+    exit 1
+  fi
+fi
+
+# ==============================================================================
+# HILFSFUNKTIONEN
+# ==============================================================================
 detect_clamav_socket() {
-  local configured_socket=""
-
   if [[ -f /etc/clamav/clamd.conf ]]; then
-    configured_socket="$(
-      awk '
-        $1 == "LocalSocket" && $2 != "" {
-          print $2
-          exit
-        }
-      ' /etc/clamav/clamd.conf
-    )"
+    local conf_socket
+    conf_socket="$(awk '$1 == "LocalSocket" && $2 != "" { print $2; exit }' /etc/clamav/clamd.conf)"
+    if [[ -n "${conf_socket}" ]]; then
+      echo "${conf_socket}"
+      return 0
+    fi
   fi
-
-  if [[ -n "${configured_socket}" ]]; then
-    echo "${configured_socket}"
-    return 0
-  fi
-
-  for candidate in \
-    /var/run/clamav/clamd.ctl \
-    /run/clamav/clamd.ctl
-  do
+  for candidate in /var/run/clamav/clamd.ctl /run/clamav/clamd.ctl; do
     if [[ -S "${candidate}" ]]; then
       echo "${candidate}"
       return 0
     fi
   done
-
-  # Debian/Raspberry Pi OS default fallback
   echo "/var/run/clamav/clamd.ctl"
 }
 
-
 wait_for_clamav_socket() {
   local socket_path="$1"
-
   for _ in {1..10}; do
     if [[ -S "${socket_path}" ]]; then
       return 0
     fi
     sleep 1
   done
-
   return 1
 }
 
-echo "[1/8] Installing system packages..."
-apt-get update
-apt-get install -y \
-  git \
-  ca-certificates \
-  python3 \
-  python3-venv \
-  python3-pip
-
-if [[ "${CLAMAV_ENABLED}" == "true" ]]; then
-  echo "[2/8] Installing and configuring ClamAV..."
-  apt-get install -y clamav clamav-daemon
-
-  systemctl enable --now clamav-daemon
-
-  if [[ -z "${CLAMAV_SOCKET_PATH}" ]]; then
-    CLAMAV_SOCKET_PATH="$(detect_clamav_socket)"
-  fi
-
-  echo "Detected ClamAV socket: ${CLAMAV_SOCKET_PATH}"
-
-  if wait_for_clamav_socket "${CLAMAV_SOCKET_PATH}"; then
-    echo "ClamAV socket is available."
-  else
-    echo "WARNING: ClamAV socket was configured as ${CLAMAV_SOCKET_PATH}, but it is not available yet."
-    echo "Check with: systemctl status clamav-daemon"
-  fi
-else
-  echo "[2/8] Skipping ClamAV."
-  CLAMAV_SOCKET_PATH="${CLAMAV_SOCKET_PATH:-}"
-fi
-
-echo "[3/8] Creating system user..."
-if ! id "${APP_USER}" >/dev/null 2>&1; then
-  useradd \
-    --system \
-    --home "${APP_DIR}" \
-    --create-home \
-    --shell /usr/sbin/nologin \
-    "${APP_USER}"
-fi
-
-if [[ "${CLAMAV_ENABLED}" == "true" ]] && getent group clamav >/dev/null 2>&1; then
-  echo "Adding ${APP_USER} to clamav group..."
-  usermod -aG clamav "${APP_USER}"
-fi
-
-echo "[4/8] Cloning or updating repository..."
-if [[ ! -d "${APP_DIR}/.git" ]]; then
-  git clone --branch "${BRANCH}" "${REPO_URL}" "${APP_DIR}"
-else
-  git -C "${APP_DIR}" fetch origin "${BRANCH}"
-  git -C "${APP_DIR}" reset --hard "origin/${BRANCH}"
-fi
-
-chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
-
-echo "[5/8] Creating Python virtual environment..."
-sudo -u "${APP_USER}" python3 -m venv "${APP_DIR}/.venv"
-
-echo "[6/8] Installing Python package..."
-sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m pip install --upgrade pip wheel setuptools
-
-# Besser als requirements.txt für Produktion:
-# Die Runtime-Dependencies sind in pyproject.toml definiert.
-sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m pip install -e "${APP_DIR}"
-
-echo "[7/8] Writing environment file..."
-install -d -m 0750 -o root -g "${APP_USER}" "${ENV_DIR}"
-
-cat > "${ENV_FILE}" <<EOF
+write_env_file() {
+  echo "Writing environment configuration to ${ENV_FILE}..."
+  install -d -m 0750 -o root -g "${APP_USER}" "${ENV_DIR}"
+  cat > "${ENV_FILE}" <<EOF
 WORKER_BASE_URL=${WORKER_BASE_URL}
 WAECHTER_TOKEN=${WAECHTER_TOKEN}
 GOOGLE_SAFE_BROWSING_API_KEY=${GOOGLE_SAFE_BROWSING_API_KEY}
@@ -154,12 +101,109 @@ LOG_LEVEL=${LOG_LEVEL}
 THRESHOLD_WARNING=${THRESHOLD_WARNING}
 THRESHOLD_BLOCK=${THRESHOLD_BLOCK}
 EOF
+  chown root:"${APP_USER}" "${ENV_FILE}"
+  chmod 0640 "${ENV_FILE}"
+}
 
-chown root:"${APP_USER}" "${ENV_FILE}"
-chmod 0640 "${ENV_FILE}"
+# ==============================================================================
+# PHASE 2: Core-Pakete & Edge Cases (ClamAV) absichern
+# ==============================================================================
+echo "Checking system dependencies..."
+# Basis-Pakete sicherstellen (tut auch beim Update nicht weh)
+if ! dpkg -s git python3-venv python3-pip >/dev/null 2>&1; then
+  apt-get update && apt-get install -y git ca-certificates python3 python3-venv python3-pip
+fi
 
-echo "[8/8] Installing systemd service..."
-cat > "/etc/systemd/system/${APP_NAME}.service" <<EOF
+# Edge Case: ClamAV wurde nachträglich aktiviert oder deinstalliert
+if [[ "${CLAMAV_ENABLED}" == "true" ]]; then
+  if ! dpkg -s clamav-daemon >/dev/null 2>&1 || ! systemctl is-active --quiet clamav-daemon; then
+    echo "Edge case detected: ClamAV is enabled, but daemon is missing or inactive. Fixing..."
+    apt-get update && apt-get install -y clamav clamav-daemon
+    systemctl daemon-reload
+    systemctl enable --now clamav-daemon
+    RESTART_NEEDED=true
+  fi
+
+  CLAMAV_SOCKET_PATH="$(detect_clamav_socket)"
+
+  if ! wait_for_clamav_socket "${CLAMAV_SOCKET_PATH}"; then
+    echo "WARNING: ClamAV socket (${CLAMAV_SOCKET_PATH}) is not ready yet."
+  fi
+fi
+
+# System-User absichern
+if ! id "${APP_USER}" >/dev/null 2>&1; then
+  useradd --system --home "${APP_DIR}" --create-home --shell /usr/sbin/nologin "${APP_USER}"
+fi
+
+# Edge Case: User-Gruppe für ClamAV-Zugriff korrigieren
+if [[ "${CLAMAV_ENABLED}" == "true" ]] && getent group clamav >/dev/null 2>&1; then
+  if ! id -nG "${APP_USER}" | grep -qw "clamav"; then
+    echo "Adding ${APP_USER} to clamav group..."
+    usermod -aG clamav "${APP_USER}"
+    RESTART_NEEDED=true
+  fi
+fi
+
+# ==============================================================================
+# PHASE 3: Weichenstellung (Update vs. Neuinstallation)
+# ==============================================================================
+if [[ "${IS_INSTALLED}" == "true" ]]; then
+  # ----------------------------------------------------------------------------
+  # MODUS: AUTOMATISCHES UPDATE
+  # ----------------------------------------------------------------------------
+  echo "Target system detected: Switching to UPDATE mode."
+  cd "${APP_DIR}"
+
+  # Git-Befehle sicher im Kontext des Besitzers ausführen (verhindert dubious ownership)
+  sudo -u "${APP_USER}" git fetch origin "${BRANCH}"
+
+  LOCAL_COMMIT=$(sudo -u "${APP_USER}" git rev-parse HEAD)
+  REMOTE_COMMIT=$(sudo -u "${APP_USER}" git rev-parse "origin/${BRANCH}")
+
+  if [[ "${LOCAL_COMMIT}" != "${REMOTE_COMMIT}" ]]; then
+    echo "New update found on GitHub! Upgrading from ${LOCAL_COMMIT} to ${REMOTE_COMMIT}..."
+    sudo -u "${APP_USER}" git reset --hard "origin/${BRANCH}"
+    sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m pip install -e "${APP_DIR}"
+    RESTART_NEEDED=true
+  else
+    echo "Code base is already up to date."
+  fi
+
+  # Falls Änderungen an ClamAV oder Code stattgefunden haben: Service-Refresh
+  if [[ "${RESTART_NEEDED}" == "true" ]]; then
+    write_env_file
+    echo "Restarting ${APP_NAME} service to load changes..."
+    systemctl restart "${APP_NAME}.service"
+    echo "Update complete."
+  else
+    echo "No service restart required."
+  fi
+
+else
+  # ----------------------------------------------------------------------------
+  # MODUS: NEUINSTALLATION
+  # ----------------------------------------------------------------------------
+  echo "Target system blank: Switching to FRESH INSTALLATION mode."
+
+  echo "Cloning repository..."
+  if [[ ! -d "${APP_DIR}/.git" ]]; then
+    git clone --branch "${BRANCH}" "${REPO_URL}" "${APP_DIR}"
+  else
+    git -C "${APP_DIR}" fetch origin "${BRANCH}"
+    git -C "${APP_DIR}" reset --hard "origin/${BRANCH}"
+  fi
+  chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
+
+  echo "Creating Python virtual environment..."
+  sudo -u "${APP_USER}" python3 -m venv "${APP_DIR}/.venv"
+  sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m pip install --upgrade pip wheel setuptools
+  sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m pip install -e "${APP_DIR}"
+
+  write_env_file
+
+  echo "Installing systemd service..."
+  cat > "/etc/systemd/system/${APP_NAME}.service" <<EOF
 [Unit]
 Description=Waechter URL scanning worker
 Wants=network-online.target
@@ -185,13 +229,7 @@ ReadWritePaths=${APP_DIR} ${ENV_DIR}
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable --now "${APP_NAME}.service"
-
-echo
-echo "Waechter installed."
-echo "Status:"
-systemctl --no-pager status "${APP_NAME}.service" || true
-echo
-echo "Logs:"
-echo "journalctl -u ${APP_NAME} -f"
+  systemctl daemon-reload
+  systemctl enable --now "${APP_NAME}.service"
+  echo "Fresh installation completed successfully."
+fi
