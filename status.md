@@ -59,6 +59,13 @@ Die Anforderungen aus dem überarbeiteten Pflichtenheft Version 1.1 wurden analy
   - Screenshot-ENVs (`SCREENSHOT_ENABLED`, `SCREENSHOT_DIR`, `SCREENSHOT_TIMEOUT_MS`, `SCREENSHOT_NO_SANDBOX`) werden jetzt geladen und in die Environment-Datei geschrieben.
   - Das Skript installiert bei aktivem Screenshot-Provider nun sowohl typische Playwright/Chromium-Laufzeitbibliotheken als auch die Chromium-Browser-Binary via `python -m playwright install chromium` in der Projekt-venv.
   - Der systemd-Service berücksichtigt beschreibbare Screenshot-Pfade jetzt korrekt, auch wenn `SCREENSHOT_DIR` außerhalb von `/opt/waechter` liegt.
+- **2026-05-18**: Shell-Installer auf minimalen Bash-Bootstrap + Python-Kernlogik umgestellt.
+  - `install.sh` ist jetzt selbsttragend und Curl-and-run-fähig: Root-Check, minimale APT-Bootstrap-Abhängigkeiten (`git`, `python3`, `python3-venv`, `ca-certificates`), Repo-Clone/Update nach `/opt/waechter`, venv-Erstellung und `pip install -e .`.
+  - Die komplette komplexe Installationslogik wurde in neue Python-Module unter `src/waechter/installer/` verschoben (`__main__.py`, `core.py`, `env.py`, `clamav.py`, `playwright.py`, `systemd.py`, `users.py`, `uninstall.py`, `runtime.py`).
+  - Dadurch entfällt das frühere Self-Update-/Re-Exec-Problem: Der Bootstrap aktualisiert zunächst das Git-Checkout und installiert das Projekt editable, danach wird `python -m waechter.installer` aus genau diesem aktualisierten Code ausgeführt. Ein zweiter manueller Durchlauf ist nicht mehr nötig.
+  - `/usr/local/sbin/waechter.sh` bleibt der stabile Einstiegspunkt und wird bei jedem Lauf per `install -m 0755 /opt/waechter/install.sh /usr/local/sbin/waechter.sh` aktualisiert.
+  - Dokumentiert ist jetzt auch der verbleibende, unvermeidbare N+1-Effekt für **reine Änderungen am Bash-Bootstrap selbst**: Die gerade laufende Bootstrap-Kopie kann sich erst für den nächsten Aufruf ersetzen. Änderungen an der Python-Installerlogik sind davon nicht betroffen und greifen im selben Lauf.
+  - `waechter-installsh.sh` existiert nur noch als Kompatibilitäts-Wrapper und delegiert explizit via `bash install.sh`, damit auch hier kein gesetztes Execute-Bit vorausgesetzt wird.
 - **2026-05-18**: Screenshot-Fehler für fehlende Systembibliotheken präzisiert.
   - Playwright/Chromium-Startfehler mit `error while loading shared libraries` werden jetzt als `playwright_system_library_missing` klassifiziert.
   - Die fehlende Shared Library (`missing_shared_library`, z. B. `libnspr4.so`) und – wenn bekannt – das zugehörige Debian/Ubuntu-Paket (`linux_package_hint`, z. B. `libnspr4`) werden strukturiert geloggt.

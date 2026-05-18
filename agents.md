@@ -83,6 +83,11 @@ Der `ScreenshotProvider` nutzt **Playwright** (async API) mit Headless‑Chromiu
 
 ## 8. Betrieb und Deployment
 
+- Shell-Installer: `install.sh` ist nun ein **selbsttragender** Bootstrap für Systemdeployments und Curl-and-run-Szenarien. Er prüft Root-Rechte, installiert minimale Bootstrap-Pakete (`git`, `python3`, `python3-venv`, `ca-certificates`), klont/aktualisiert das Repo nach `/opt/waechter`, erzeugt die venv und ruft anschließend den Python-Installer via `python -m waechter.installer` auf.
+- Python-Installer: Die eigentliche Installationslogik liegt jetzt unter `waechter.installer.*` (`env`, `clamav`, `playwright`, `systemd`, `users`, `uninstall`, `runtime`). Damit sind Parsing, Idempotenz, Fehlerbehandlung und Tests in Python statt in Bash konzentriert.
+- Self-Update-Verhalten: Der Bash-Bootstrap bleibt klein und stabil; bei jedem Lauf kopiert der Python-Installer die Repo-Version von `install.sh` nach `/usr/local/sbin/waechter.sh`. Die Python-Kernlogik wird durch den vorgeschalteten `git fetch`/`git reset --hard` automatisch aktualisiert und im selben Lauf genutzt – ohne zweites Re-Exec.
+- Einschränkung / bewusst akzeptiert: Änderungen **am Bash-Bootstrap selbst** wirken wegen der Natur selbstaktualisierender Launcher erst beim nächsten Aufruf von `/usr/local/sbin/waechter.sh` (N+1). Da der Bootstrap absichtlich minimal gehalten wird, ist dieser Trade-off akzeptabel; Änderungen in `waechter.installer.*` greifen bereits im aktuellen Lauf.
+- `waechter-installsh.sh` ist nur noch ein abwärtskompatibler Wrapper und sollte nicht mehr als primärer Einstiegspunkt dokumentiert werden.
 - Single‑Binary Start: `python main.py` (nach Aktivierung des venv)
 - Logging: `LOG_LEVEL=DEBUG` für Diagnose; bei systemd werden ENV nicht vom Shell‑Kontext geerbt → `EnvironmentFile` benutzen.
 - ClamAV: `clamd` muss laufen und Socket‑Pfad muss passen; Größen‑ und Redirect‑Limits beachten.

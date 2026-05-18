@@ -77,6 +77,44 @@ python main.py
 
 Settings can be changed later in `.env` and `config/waechter.yaml`. **Note:** Environment variables (like `CLAMAV_ENABLED`) take precedence over YAML configuration files.
 
+### Linux / systemd Shell Installer
+
+For server deployments, use the shell bootstrap from the repository root:
+
+```bash
+bash install.sh
+```
+
+For one-shot curl-and-run installations, the same file is self-contained and can bootstrap a full installation on its own:
+
+```bash
+curl -O https://raw.githubusercontent.com/arnisz/waechter/master/install.sh
+sudo WORKER_BASE_URL=https://backend.example \
+  WAECHTER_TOKEN=secret-token \
+  bash install.sh
+```
+
+`install.sh` is now a minimal, self-contained bootstrap. It only ensures basic system packages (`git`, `python3`, `python3-venv`, `ca-certificates`), clones or updates the repository in `/opt/waechter`, refreshes the project venv, installs the project editable, and then hands off to the Python installer via `python -m waechter.installer`.
+
+The heavier installation logic now lives in `src/waechter/installer/`:
+
+- `__main__.py` orchestrates install vs. uninstall
+- `env.py` parses and writes `/etc/waechter/waechter.env`
+- `clamav.py` handles ClamAV setup and socket waiting
+- `playwright.py` installs Chromium runtime packages and the Playwright browser
+- `systemd.py` writes `waechter.service` plus the update timer/service
+- `uninstall.py` removes services, files, and the system user
+
+Self-update behavior is now straightforward:
+
+- the thin Bash bootstrap from the repository is copied to `/usr/local/sbin/waechter.sh` with `install -m 0755`
+- the Python installer code is part of the repository itself and therefore updated automatically by `git fetch` + `git reset --hard origin/master`
+- because the bootstrap only invokes the Python module *after* the repository update and editable reinstall, the current run already uses the latest installer logic; no second manual installer run is required anymore
+
+There is still one intentional N+1 detail: if the **bootstrap Bash file itself** changes, the currently running copy of `/usr/local/sbin/waechter.sh` can only overwrite itself for the *next* invocation. This is acceptable because the bootstrap is intentionally tiny and stable, while the Python installer logic (where most changes happen) is already updated and active in the current run.
+
+Because the bootstrap can be started with `bash install.sh`, a manual `chmod +x` is no longer required for the initial call. The compatibility wrapper `waechter-installsh.sh` also delegates explicitly via `bash`, so the installer never relies on repository execute bits being present.
+
 ### Manual Installation
 
 If you do not want to use the installer, create a virtual environment manually:
