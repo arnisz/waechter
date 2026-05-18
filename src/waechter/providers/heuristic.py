@@ -86,7 +86,7 @@ class HeuristicProvider(ScanProvider):
         self.path_keywords = set(load_keywords_list(path_fp))
         self.url_keywords = set(load_keywords_list(url_fp))
 
-    async def scan(self, url: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
+    async def scan(self, url: str, session: aiohttp.ClientSession, link_id: str | None = None) -> Dict[str, Any]:
         signals = {}
 
         try:

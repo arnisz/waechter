@@ -41,7 +41,8 @@ The installer guides you through the basic setup:
 - installs Python dependencies from `requirements.txt`,
 - installs Waechter as an editable local package,
 - creates missing default files under `config/` and `data/keywords/heuristic/`,
-- writes or updates `.env` with the required runtime settings.
+- writes or updates `.env` with the required runtime settings,
+- optionally installs the Playwright Chromium browser for the screenshot provider using the same Python interpreter as the project.
 
 You will be prompted for:
 
@@ -50,12 +51,21 @@ You will be prompted for:
 - optional `GOOGLE_SAFE_BROWSING_API_KEY`
 - polling, batch, threshold, and concurrency settings
 - optional ClamAV settings
+- screenshot settings (`SCREENSHOT_ENABLED`, `SCREENSHOT_DIR`, `SCREENSHOT_TIMEOUT_MS`, `SCREENSHOT_NO_SANDBOX`)
+- optional Playwright Chromium installation
 
 After installation, activate the virtual environment and start the worker:
 
 ```bash
 source .venv/bin/activate
 python main.py
+```
+
+If you skipped browser installation during setup, install it later in the same environment:
+
+```bash
+source .venv/bin/activate
+python -m playwright install chromium
 ```
 
 On Windows PowerShell:
@@ -76,6 +86,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
+python -m playwright install chromium
 ```
 
 On Windows PowerShell:
@@ -110,6 +121,10 @@ Optional variables:
 GOOGLE_SAFE_BROWSING_API_KEY=your_google_safe_browsing_api_key
 CLAMAV_ENABLED=false
 CLAMAV_SOCKET_PATH=/var/run/clamav/clamd.ctl
+SCREENSHOT_ENABLED=true
+SCREENSHOT_DIR=./screenshots
+SCREENSHOT_TIMEOUT_MS=10000
+SCREENSHOT_NO_SANDBOX=false
 SCAN_CONCURRENCY=20
 BATCH_SIZE=50
 MIN_WAIT_MS=5000
@@ -120,6 +135,52 @@ THRESHOLD_BLOCK=0.95
 ```
 
 `CLAMAV_ENABLED=true` enables the local ClamAV provider. This is intended for Linux systems where `clamd` exposes a Unix socket, for example `/run/clamav/clamd.ctl`.
+
+`SCREENSHOT_ENABLED=true` enables the Playwright-based screenshot provider. It requires both the Python package and the Chromium browser binary installed via `python -m playwright install chromium` in the same environment used to run the worker.
+
+## Screenshot Provider Setup
+
+Install the Playwright browser binary in the same virtual environment used by the worker:
+
+```bash
+source .venv/bin/activate
+python -m playwright install chromium
+```
+
+On headless Linux servers, additional system libraries may be required depending on the distribution, for example `libnss3`, `libgbm1`, `libasound2`, `libxdamage1`, `libxrandr2` or related packages.
+
+On Ubuntu 24.04 (Noble), several of these packages have `t64` suffixes. A verified example command is:
+
+```bash
+sudo apt update
+sudo apt install -y \
+  libnspr4 \
+  libnss3 \
+  libgbm1 \
+  libasound2t64 \
+  libatk-bridge2.0-0t64 \
+  libatk1.0-0t64 \
+  libcups2t64 \
+  libdrm2 \
+  libxkbcommon0 \
+  libxcomposite1 \
+  libxdamage1 \
+  libxfixes3 \
+  libxrandr2 \
+  libx11-xcb1 \
+  libxshmfence1 \
+  libpango-1.0-0 \
+  libcairo2 \
+  libatspi2.0-0t64 \
+  libgtk-3-0t64
+```
+
+After the system packages are present, install the browser binary in the same Python environment as the worker:
+
+```bash
+source .venv/bin/activate
+python -m playwright install chromium
+```
 
 ## Running
 

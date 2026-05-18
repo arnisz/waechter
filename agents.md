@@ -22,6 +22,7 @@ Dieses Dokument beschreibt Zweck, Architektur, Datenfluss, Konfiguration und Bet
     - `HeuristicProvider` – immer aktiv; statische/heuristische Merkmale (IP‑Host, verdächtige TLDs, sehr lange URLs, Brand‑Imitation mit Keywords und offiziellen Domains, Punycode, Redirect‑Muster, HTML‑Formularindikatoren, Domainalter über WHOIS).
     - `GoogleSafeBrowsingProvider` – optional, benötigt `GOOGLE_SAFE_BROWSING_API_KEY`.
     - `ClamAVProvider` – optional, `CLAMAV_ENABLED=true`; lädt Inhalte (Größen‑ und Redirect‑Limits) und prüft per lokalem `clamd` (INSTREAM).
+    - `ScreenshotProvider` – optional, `SCREENSHOT_ENABLED=true`; öffnet die URL in einem Playwright‑gesteuerten Headless‑Chromium, rendert die Seite und speichert ein PNG‑Abbild (1024 × 768 px) unter `SCREENSHOT_DIR/<link_id>.png`. Liefert keinen Score, stellt das Bild aber nachgelagerten Analyse‑Schritten bereit.
 
 - Aggregation (`waechter.aggregation`)
   - Kombiniert Provider‑Ergebnisse mit gewichtetem Bayesian noisy‑OR: P(malicious) = 1 − Π(1 − raw_score)^weight.
@@ -43,7 +44,7 @@ Dieses Dokument beschreibt Zweck, Architektur, Datenfluss, Konfiguration und Bet
 
 - Primär über `.env`/Umgebungsvariablen:
   - `WORKER_BASE_URL`, `WAECHTER_TOKEN` (Pflicht)
-  - Optional: `GOOGLE_SAFE_BROWSING_API_KEY`, `CLAMAV_ENABLED`, `CLAMAV_SOCKET_PATH`
+  - Optional: `GOOGLE_SAFE_BROWSING_API_KEY`, `CLAMAV_ENABLED`, `CLAMAV_SOCKET_PATH`, `SCREENSHOT_ENABLED`, `SCREENSHOT_DIR` (Pfad für PNG‑Abbilder, Standard: `./screenshots`), `SCREENSHOT_TIMEOUT_MS` (Browser‑Timeout je URL, Standard: `10000`)
   - Betriebsparameter: `SCAN_CONCURRENCY`, `BATCH_SIZE`, `MIN_WAIT_MS`, `MAX_WAIT_MS`, `LOG_LEVEL`, `THRESHOLD_WARNING`, `THRESHOLD_BLOCK`
 - YAML (`config/waechter.yaml`) ergänzt/überschreibt feingranular Provider‑Einstellungen (Gewichte, Grenzwerte, Keyword‑Dateien). ENV hat Vorrang vor YAML.
 
@@ -62,30 +63,46 @@ Der `HeuristicProvider` nutzt u. a.:
 
 Hinweis zu WHOIS: Aktuell erfolgt die Abfrage pro registrierbarer Basis‑Domain synchron via `python-whois` im Thread‑Pool (siehe `_check_whois_age`). Ein explizites Cache‑Layer ist noch nicht implementiert (siehe Pflichtenheft, Punkt 3).
 
-## 6. Fehler‑ und Quotenbehandlung
+## 6. Provider – Details Screenshot
+
+Der `ScreenshotProvider` nutzt **Playwright** (async API) mit Headless‑Chromium. In der Standardkonfiguration (`config/waechter.yaml`) ist er aktiviert; per `SCREENSHOT_ENABLED` kann er explizit übersteuert werden:
+
+- Viewport: 1024 × 768 px, festes Format, kein Scaling.
+- Ablauf: `page.goto(url, timeout=SCREENSHOT_TIMEOUT_MS, wait_until="domcontentloaded")` → optional `page.wait_for_load_state("networkidle")` mit kurzem Timeout → `page.screenshot(path=<SCREENSHOT_DIR>/<link_id>.png, full_page=False)`.
+- Dateiname: `<link_id>.png` — die `link_id` ist die stabile Kennung eines Links; die Ziel‑URL kann nachträglich editiert werden, die `link_id` bleibt konstant. Ein URL‑Hash wäre daher ungeeignet. Bei einem Rescan wird die Datei überschrieben; es wird immer nur der aktuelle Stand vorgehalten.
+- Interface‑Erweiterung: Die Basisklasse `ScanProvider.scan()` erhält einen optionalen Parameter `link_id: str | None = None`. Bestehende Provider ignorieren ihn; der `ScreenshotProvider` verwendet ihn zur Benennung der Ausgabedatei. Ist `link_id` nicht gesetzt, wird der Screenshot nicht gespeichert und eine Warnung geloggt.
+- Sicherheit: Playwright wird im Sandbox‑Modus gestartet (`--no-sandbox` nur wenn explizit via `SCREENSHOT_NO_SANDBOX=true` gesetzt); kein Zugriff auf lokale Ressourcen; JavaScript‑Ausführung ist auf die Ziel‑Seite beschränkt.
+- Fehlerverhalten: Bei Timeout, DNS‑Fehler oder sonstigem Browser‑Fehler wird der Fehler geloggt (Level `WARNING`). Beim Start loggt der Worker außerdem, ob der Screenshot-Provider effektiv aktiv ist (`screenshot_enabled_effective`) und falls nicht, warum (`screenshot_disabled_reason`). Der Provider gibt kein Ergebnis zurück; das Scan‑Ergebnis enthält keinen Screenshot‑Eintrag, der Gesamtlauf wird nicht unterbrochen.
+- Abhängigkeit: `playwright` Python‑Paket; Chromium‑Binary muss via `playwright install chromium` bereitgestellt sein.
+
+## 7. Fehler‑ und Quotenbehandlung
 
 - Provider dürfen `QuotaExhaustedError` auslösen; der Loop protokolliert Warnungen und fährt mit anderen Providern fort.
 - Netzwerkfehler/Timeouts führen zu defensiven Defaults (z. B. WHOIS‑Fail‑Default, HTML‑Analyse best‑effort).
 - Bei `401 Unauthorized` beendet der Worker den Prozess frühzeitig.
 
-## 7. Betrieb und Deployment
+## 8. Betrieb und Deployment
 
 - Single‑Binary Start: `python main.py` (nach Aktivierung des venv)
 - Logging: `LOG_LEVEL=DEBUG` für Diagnose; bei systemd werden ENV nicht vom Shell‑Kontext geerbt → `EnvironmentFile` benutzen.
 - ClamAV: `clamd` muss laufen und Socket‑Pfad muss passen; Größen‑ und Redirect‑Limits beachten.
-- Skalierung: Mehrere Worker‑Instanzen möglich; Backend sollte Idempotenz/Claiming sicherstellen.
+- ClamAV HTTP-Fehlerdiagnose: Wenn Zielseiten automatisierte Abrufe blockieren (z. B. `403 Forbidden`, WAF/Bot-Protection), loggt der Provider strukturierte Diagnosefelder wie `http_status`, `final_url`, `redirect_count`, `server`, `response_preview` und `block_hint`. Dadurch lassen sich Access-Denied-/Bot-Block-Fälle wesentlich schneller eingrenzen.
+- Screenshot‑Provider: `playwright install chromium` nach `pip install playwright` ausführen; auf headless‑Servern ggf. `libgbm`, `libnss3` und weitere System‑Abhängigkeiten installieren. Screenshots landen unter `SCREENSHOT_DIR` (Standard: `./screenshots`); Verzeichnis muss vom Worker‑Prozess beschreibbar sein.
+- Skalierung: Mehrere Worker‑Instanzen möglich; Backend sollte Idempotenz/Claiming sicherstellen. Jede Instanz benötigt einen eigenen `SCREENSHOT_DIR`, falls Screenshots persistent gespeichert werden sollen.
 
-## 8. Tests
+## 9. Tests
 
 - Pytest‑Suite vorhanden (u. a. Aggregation, Provider‑Heuristik). Externe Provider‑Tests (GSB/ClamAV) können marker‑basiert ausgeschlossen werden.
+- Screenshot‑Tests: Playwright‑Tests können mit dem Marker `@pytest.mark.playwright` versehen und im CI ohne Display via `xvfb` oder `--headed=false` ausgeführt werden.
 
-## 9. Bekannte Verbesserungspunkte (Auszug)
+## 10. Bekannte Verbesserungspunkte (Auszug)
 
-- WHOIS‑Caching (siehe Pflichtenheft, Punkt „3. WHOIS‑Caching fehlt“): eTLD+1‑Schlüssel, TTL ~24h, In‑Memory oder Redis zur Vermeidung von Registrar‑IP‑Bans.
+- WHOIS‑Caching (siehe Pflichtenheft, Punkt „3. WHOIS‑Caching fehlt”): eTLD+1‑Schlüssel, TTL ~24h, In‑Memory oder Redis zur Vermeidung von Registrar‑IP‑Bans.
 - Metriken/Observability: Zähler für Provider‑Aufrufe, Fehlerraten, Redirect‑Verteilungen, durchschnittliche Aggregat‑Scores.
 - Circuit‑Breaker/Rate‑Limit für externe Dienste.
+- Screenshot‑Analyse: Der `ScreenshotProvider` erstellt derzeit nur das PNG‑Abbild. Eine nachgelagerte visuelle Auswertung (z. B. OCR via Tesseract, Phishing‑Klassifikator auf Bildebene) ist als optionale Erweiterungsstufe geplant.
 
-## 10. Quellen
+## 11. Quellen
 
 - README.md (Install, Konfiguration, API, Betrieb)
 - status.md (Umsetzungsstand)

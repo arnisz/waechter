@@ -1,11 +1,12 @@
 import os
 import sys
 import asyncio
+from typing import List, cast
 from dotenv import load_dotenv
 
 from waechter.api import WorkerApi
 from waechter import __version__
-from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider
+from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider, ScreenshotProvider, ScanProvider
 from waechter.loop import pull_loop
 from waechter.logger import get_logger
 from waechter.config_loader import as_bool, provider_cfg
@@ -23,7 +24,8 @@ async def main():
 
     api = WorkerApi(base_url, token)
 
-    providers = [HeuristicProvider()]
+    providers: List[ScanProvider] = []
+    providers.append(cast(ScanProvider, HeuristicProvider()))
 
     # ClamAV enabled: ENV override takes precedence, else YAML config
     clamav_cfg = provider_cfg("clamav")
@@ -35,12 +37,17 @@ async def main():
 
     if clamav_enabled:
         clamav_socket_path = os.environ.get("CLAMAV_SOCKET_PATH", (clamav_cfg.get("connection", {}) or {}).get("socket_path", "/var/run/clamav/clamd.ctl"))
-        providers.append(ClamAVProvider(socket_path=clamav_socket_path, enabled=True))
+        providers.append(cast(ScanProvider, ClamAVProvider(socket_path=clamav_socket_path, enabled=True)))
 
     gsb_key = os.environ.get("GOOGLE_SAFE_BROWSING_API_KEY", "")
     gsb_cfg = provider_cfg("google_safe_browsing")
     if gsb_key and as_bool(gsb_cfg.get("enabled", True)):
-        providers.append(GoogleSafeBrowsingProvider(gsb_key))
+        providers.append(cast(ScanProvider, GoogleSafeBrowsingProvider(gsb_key)))
+
+    # Add ScreenshotProvider last for security reasons (only after other checks)
+    screenshot_provider = ScreenshotProvider()
+    if screenshot_provider.enabled:
+        providers.append(cast(ScanProvider, screenshot_provider))
 
     logger.info("Starting Waechter daemon", extra={"extra_data": {
         "version": __version__,
@@ -48,6 +55,10 @@ async def main():
         "provider_names": [provider.name for provider in providers],
         "clamav_enabled_effective": clamav_enabled,
         "clamav_socket_path": os.environ.get("CLAMAV_SOCKET_PATH", (clamav_cfg.get("connection", {}) or {}).get("socket_path", "/var/run/clamav/clamd.ctl")),
+        "screenshot_enabled_effective": screenshot_provider.enabled,
+        "screenshot_enabled_source": screenshot_provider.enabled_source,
+        "screenshot_disabled_reason": screenshot_provider.disabled_reason,
+        "screenshot_dir": str(screenshot_provider.screenshot_dir),
     }})
     await pull_loop(providers, api)
 
@@ -56,4 +67,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Shutting down")
-

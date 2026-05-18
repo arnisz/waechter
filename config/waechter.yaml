@@ -59,3 +59,10 @@ providers:
     timeouts:
       download_sec: 10
       scan_sec: 10
+
+  screenshot:
+    enabled: true
+    dir: "./screenshots"
+    timeout_ms: 10000
+    no_sandbox: false
+

@@ -18,7 +18,6 @@ from __future__ import annotations
 import os
 import sys
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from textwrap import dedent
@@ -96,6 +95,12 @@ DEFAULT_CONFIG_YAML = dedent(
         timeouts:
           download_sec: 10
           scan_sec: 10
+
+      screenshot:
+        enabled: true
+        dir: "./screenshots"
+        timeout_ms: 10000
+        no_sandbox: false
     """
 ).strip() + "\n"
 
@@ -183,16 +188,16 @@ DEFAULT_URL_CSV = dedent(
 ).strip() + "\n"
 
 
-def info(msg: str) -> None:
-    print(f"[INFO] {msg}")
+def info(msg: object) -> None:
+    print("[INFO]", str(msg))
 
 
-def warn(msg: str) -> None:
-    print(f"[WARN] {msg}")
+def warn(msg: object) -> None:
+    print("[WARN]", str(msg))
 
 
-def error(msg: str) -> None:
-    print(f"[ERROR] {msg}")
+def error(msg: object) -> None:
+    print("[ERROR]", str(msg))
 
 
 def prompt(text: str, default: str | None = None, required: bool = False, secret: bool = False) -> str:
@@ -204,7 +209,7 @@ def prompt(text: str, default: str | None = None, required: bool = False, secret
         if required and not raw:
             warn("Eingabe erforderlich.")
             continue
-        return raw
+        return raw or ""
 
 
 def prompt_bool(text: str, default: bool = False) -> bool:
@@ -349,6 +354,32 @@ def pip_install(python_bin: Path, req_file: Path) -> None:
         subprocess.check_call([str(python_bin), "-m", "pip", "install", "-e", f"{PROJECT_ROOT}[dev]"], cwd=str(PROJECT_ROOT))
 
 
+def maybe_install_playwright_browser(python_bin: Path, screenshot_enabled: bool) -> None:
+    if not screenshot_enabled:
+        info("Screenshot-Provider deaktiviert – Playwright-Browser-Installation wird übersprungen.")
+        return
+
+    if sys.platform.startswith("linux"):
+        warn(
+            "Der Screenshot-Provider benötigt auf Linux zusätzlich Systembibliotheken für Chromium, "
+            "z. B. libnspr4, libnss3, libgbm1, libasound2 und weitere Headless-Abhängigkeiten. "
+            "Bei Browser-Startfehlern bitte diese Pakete per Paketmanager installieren."
+        )
+
+    if not prompt_bool("Playwright Chromium-Browser jetzt installieren?", default=True):
+        warn("Playwright-Browser nicht installiert. Der Screenshot-Provider benötigt später: python -m playwright install chromium")
+        return
+
+    info("Installiere Playwright Chromium-Browser …")
+    try:
+        subprocess.check_call([str(python_bin), "-m", "playwright", "install", "chromium"], cwd=str(PROJECT_ROOT))
+    except subprocess.CalledProcessError as e:
+        warn(
+            "Playwright Chromium konnte nicht installiert werden "
+            f"(Exit {e.returncode}). Führen Sie später aus: {python_bin} -m playwright install chromium"
+        )
+
+
 def load_env_example_defaults() -> dict[str, str]:
     defaults: dict[str, str] = {}
     if ENV_EXAMPLE_FILE.exists():
@@ -381,7 +412,7 @@ def write_env(env_values: dict[str, str]) -> None:
     info(f".env geschrieben: {ENV_FILE}")
 
 
-def configure_env_interactively() -> None:
+def configure_env_interactively() -> dict[str, str]:
     info("Konfiguriere ENV Variablen (.env)")
     defaults = load_env_example_defaults()
 
@@ -405,6 +436,24 @@ def configure_env_interactively() -> None:
         default_socket = os.environ.get("CLAMAV_SOCKET_PATH", "/var/run/clamav/clamd.ctl")
         clamav_socket = prompt("CLAMAV_SOCKET_PATH (UNIX Socket)", default=default_socket)
 
+    # Screenshot / Playwright
+    screenshot_enabled = prompt_bool(
+        "Screenshot-Provider aktivieren?",
+        default=os.environ.get("SCREENSHOT_ENABLED", "true").lower() in ("1", "true", "yes", "on"),
+    )
+    screenshot_dir = prompt(
+        "SCREENSHOT_DIR",
+        default=os.environ.get("SCREENSHOT_DIR", "./screenshots"),
+    )
+    screenshot_timeout_ms = prompt(
+        "SCREENSHOT_TIMEOUT_MS",
+        default=os.environ.get("SCREENSHOT_TIMEOUT_MS", "10000"),
+    )
+    screenshot_no_sandbox = prompt_bool(
+        "SCREENSHOT_NO_SANDBOX aktivieren?",
+        default=os.environ.get("SCREENSHOT_NO_SANDBOX", "false").lower() in ("1", "true", "yes", "on"),
+    )
+
     # Optional: expliziter Pfad zur YAML
     cfg_path = prompt("WAECHTER_CONFIG Pfad (leer = Standard)", default="")
     kw_dir = prompt("WAECHTER_KEYWORDS_DIR (leer = Standard)", default="")
@@ -420,6 +469,10 @@ def configure_env_interactively() -> None:
         "THRESHOLD_WARNING": th_warn,
         "THRESHOLD_BLOCK": th_block,
         "CLAMAV_ENABLED": "true" if clamav_enabled else "false",
+        "SCREENSHOT_ENABLED": "true" if screenshot_enabled else "false",
+        "SCREENSHOT_DIR": screenshot_dir,
+        "SCREENSHOT_TIMEOUT_MS": screenshot_timeout_ms,
+        "SCREENSHOT_NO_SANDBOX": "true" if screenshot_no_sandbox else "false",
     }
     if clamav_enabled and clamav_socket:
         values["CLAMAV_SOCKET_PATH"] = clamav_socket
@@ -429,6 +482,7 @@ def configure_env_interactively() -> None:
         values["WAECHTER_KEYWORDS_DIR"] = kw_dir
 
     write_env(values)
+    return values
 
 
 def main() -> int:
@@ -454,7 +508,11 @@ def main() -> int:
     except subprocess.CalledProcessError as e:
         error(f"Paketinstallation fehlgeschlagen (Exit {e.returncode}). Sie können es später erneut versuchen: {py} -m pip install -r {SANITIZED_REQUIREMENTS_FILE}")
 
-    configure_env_interactively()
+    env_values = configure_env_interactively()
+    maybe_install_playwright_browser(
+        py,
+        screenshot_enabled=env_values.get("SCREENSHOT_ENABLED", "true").lower() in ("1", "true", "yes", "on"),
+    )
 
     print("\nFertig! Nächste Schritte:")
     if str(py).lower().endswith("python.exe") or "/bin/python" in str(py):

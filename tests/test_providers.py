@@ -1,8 +1,10 @@
 import pytest
 import aiohttp
-from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider, QuotaExhaustedError
+from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider
 from aioresponses import aioresponses
-import json
+from unittest.mock import patch
+
+import waechter.providers.clamav as clamav_module
 
 
 async def _no_whois_score(hostname):
@@ -199,4 +201,37 @@ async def test_clamav_provider_scores_too_many_redirects_without_scanning(monkey
             res = await provider.scan("http://example.com/start", session)
             assert res["raw_score"] == 0.9
             assert "more_than_7_redirects" in res["raw_response"]
+
+
+@pytest.mark.asyncio
+async def test_clamav_provider_logs_structured_http_error_for_blocked_fetch():
+    provider = ClamAVProvider()
+
+    async with aiohttp.ClientSession() as session:
+        with aioresponses() as m:
+            m.get(
+                "https://www.digikey.de/",
+                status=403,
+                body="Access Denied - automated access blocked",
+                headers={"Server": "AkamaiGHost", "Content-Type": "text/html"},
+            )
+
+            with patch.object(clamav_module.logger, "error") as log_error:
+                with pytest.raises(clamav_module.ClamAVDownloadError) as exc_info:
+                    await provider.scan("https://www.digikey.de/", session, link_id="link-123")
+
+    message = str(exc_info.value)
+    assert "http_status=403" in message
+    assert "block_hint=possible_bot_protection_or_access_denied" in message
+
+    log_error.assert_called_once()
+    _, kwargs = log_error.call_args
+    extra_data = kwargs["extra"]["extra_data"]
+    assert extra_data["link_id"] == "link-123"
+    assert extra_data["http_status"] == 403
+    assert extra_data["final_url"] == "https://www.digikey.de/"
+    assert extra_data["server"] == "AkamaiGHost"
+    assert extra_data["block_hint"] == "possible_bot_protection_or_access_denied"
+    assert "Access Denied" in extra_data["response_preview"]
+
 

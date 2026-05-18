@@ -8,7 +8,7 @@ ENV_DIR="/etc/waechter"
 ENV_FILE="${ENV_DIR}/waechter.env"
 SCRIPT_INSTALL_PATH="/usr/local/sbin/waechter.sh"
 # Pfad des Installer-Scripts innerhalb des Repos (für Self-Update)
-SCRIPT_REPO_RELATIVE_PATH="waechter.sh"
+SCRIPT_REPO_RELATIVE_PATH="waechter-installsh.sh"
 REPO_URL="https://github.com/arnisz/waechter.git"
 BRANCH="master"
 
@@ -104,6 +104,10 @@ WAECHTER_TOKEN="${WAECHTER_TOKEN:-}"
 GOOGLE_SAFE_BROWSING_API_KEY="${GOOGLE_SAFE_BROWSING_API_KEY:-}"
 CLAMAV_ENABLED="${CLAMAV_ENABLED:-false}"
 CLAMAV_SOCKET_PATH="${CLAMAV_SOCKET_PATH:-}"
+SCREENSHOT_ENABLED="${SCREENSHOT_ENABLED:-true}"
+SCREENSHOT_DIR="${SCREENSHOT_DIR:-./screenshots}"
+SCREENSHOT_TIMEOUT_MS="${SCREENSHOT_TIMEOUT_MS:-10000}"
+SCREENSHOT_NO_SANDBOX="${SCREENSHOT_NO_SANDBOX:-false}"
 SCAN_CONCURRENCY="${SCAN_CONCURRENCY:-10}"
 BATCH_SIZE="${BATCH_SIZE:-25}"
 MIN_WAIT_MS="${MIN_WAIT_MS:-5000}"
@@ -165,6 +169,24 @@ wait_for_clamav_socket() {
   return 1
 }
 
+apt_package_available() {
+  local pkg="$1"
+  apt-cache policy "$pkg" 2>/dev/null | grep -q "Candidate: " && \
+    ! apt-cache policy "$pkg" 2>/dev/null | grep -q "Candidate: (none)"
+}
+
+resolve_apt_package() {
+  local pkg
+  for pkg in "$@"; do
+    if apt_package_available "$pkg"; then
+      echo "$pkg"
+      return 0
+    fi
+  done
+
+  echo "$1"
+}
+
 write_env_file() {
   echo "Writing environment configuration to ${ENV_FILE}..."
   install -d -m 0750 -o root -g "${APP_USER}" "${ENV_DIR}"
@@ -178,6 +200,10 @@ WAECHTER_TOKEN=${WAECHTER_TOKEN}
 GOOGLE_SAFE_BROWSING_API_KEY=${GOOGLE_SAFE_BROWSING_API_KEY}
 CLAMAV_ENABLED=${CLAMAV_ENABLED}
 CLAMAV_SOCKET_PATH=${CLAMAV_SOCKET_PATH}
+SCREENSHOT_ENABLED=${SCREENSHOT_ENABLED}
+SCREENSHOT_DIR=${SCREENSHOT_DIR}
+SCREENSHOT_TIMEOUT_MS=${SCREENSHOT_TIMEOUT_MS}
+SCREENSHOT_NO_SANDBOX=${SCREENSHOT_NO_SANDBOX}
 SCAN_CONCURRENCY=${SCAN_CONCURRENCY}
 BATCH_SIZE=${BATCH_SIZE}
 MIN_WAIT_MS=${MIN_WAIT_MS}
@@ -188,6 +214,112 @@ THRESHOLD_BLOCK=${THRESHOLD_BLOCK}
 EOF
   chown root:"${APP_USER}" "${ENV_FILE}"
   chmod 0640 "${ENV_FILE}"
+}
+
+ensure_screenshot_dir() {
+  if [[ "${SCREENSHOT_ENABLED}" != "true" ]]; then
+    return 0
+  fi
+
+  local resolved_dir
+  if [[ "${SCREENSHOT_DIR}" = /* ]]; then
+    resolved_dir="${SCREENSHOT_DIR}"
+  else
+    resolved_dir="${APP_DIR}/${SCREENSHOT_DIR#./}"
+  fi
+
+  install -d -m 0750 -o "${APP_USER}" -g "${APP_USER}" "${resolved_dir}"
+}
+
+playwright_rw_paths() {
+  local paths=("${APP_DIR}" "${ENV_DIR}")
+
+  if [[ "${SCREENSHOT_ENABLED}" == "true" && "${SCREENSHOT_DIR}" = /* ]]; then
+    paths+=("${SCREENSHOT_DIR}")
+  fi
+
+  printf '%s ' "${paths[@]}"
+}
+
+install_or_update_service() {
+  echo "Installing systemd service..."
+  cat > "/etc/systemd/system/${APP_NAME}.service" <<EOF
+[Unit]
+Description=Waechter URL scanning worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=${APP_USER}
+Group=${APP_USER}
+WorkingDirectory=${APP_DIR}
+EnvironmentFile=${ENV_FILE}
+ExecStart=${APP_DIR}/.venv/bin/python ${APP_DIR}/main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=$(playwright_rw_paths)
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+}
+
+install_playwright_runtime_deps() {
+  if [[ "${SCREENSHOT_ENABLED}" != "true" ]]; then
+    return 0
+  fi
+
+  local -a screenshot_pkgs=(
+    libnspr4
+    libnss3
+    libgbm1
+    "$(resolve_apt_package libasound2t64 libasound2)"
+    "$(resolve_apt_package libatk-bridge2.0-0t64 libatk-bridge2.0-0)"
+    "$(resolve_apt_package libatk1.0-0t64 libatk1.0-0)"
+    "$(resolve_apt_package libcups2t64 libcups2)"
+    libdrm2
+    libxkbcommon0
+    libxcomposite1
+    libxdamage1
+    libxfixes3
+    libxrandr2
+    libx11-xcb1
+    libxshmfence1
+    libpango-1.0-0
+    libcairo2
+    "$(resolve_apt_package libatspi2.0-0t64 libatspi2.0-0)"
+    "$(resolve_apt_package libgtk-3-0t64 libgtk-3-0)"
+  )
+
+  local -a missing_screenshot_pkgs=()
+  local pkg
+  for pkg in "${screenshot_pkgs[@]}"; do
+    dpkg -s "$pkg" &>/dev/null || missing_screenshot_pkgs+=("$pkg")
+  done
+
+  if [[ ${#missing_screenshot_pkgs[@]} -gt 0 ]]; then
+    echo "Installing Playwright/Chromium runtime dependencies..."
+    apt-get update && apt-get install -y "${missing_screenshot_pkgs[@]}"
+  fi
+}
+
+install_playwright_browser() {
+  if [[ "${SCREENSHOT_ENABLED}" != "true" ]]; then
+    return 0
+  fi
+
+  echo "Ensuring Playwright Chromium browser is installed..."
+  sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m playwright install chromium
 }
 
 install_update_timer() {
@@ -248,6 +380,8 @@ done
 if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
   apt-get update && apt-get install -y "${MISSING_PKGS[@]}"
 fi
+
+install_playwright_runtime_deps
 
 # Edge Case: ClamAV
 if [[ "${CLAMAV_ENABLED}" == "true" ]]; then
@@ -311,6 +445,9 @@ if [[ "${IS_INSTALLED}" == "true" ]]; then
     echo "New update found! Upgrading from ${LOCAL_COMMIT} to ${REMOTE_COMMIT}..."
     sudo -u "${APP_USER}" git reset --hard "origin/${BRANCH}"
     sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m pip install -e "${APP_DIR}"
+    if [[ "${SCREENSHOT_ENABLED}" == "true" ]]; then
+      install_playwright_browser
+    fi
 
     # FIX: Self-Update — Installer-Script aus dem Repo über sich selbst schreiben,
     # damit Bugfixes am Skript beim nächsten Timer-Durchlauf aktiv sind.
@@ -328,6 +465,9 @@ if [[ "${IS_INSTALLED}" == "true" ]]; then
   # FIX: Env-Datei immer schreiben — auch wenn keine Code-Änderungen vorliegen,
   # können per Env-Variable neue Werte übergeben worden sein (z.B. neuer Token).
   write_env_file
+  ensure_screenshot_dir
+  install_playwright_browser
+  install_or_update_service
 
   if [[ "${RESTART_NEEDED}" == "true" ]]; then
     echo "Restarting ${APP_NAME} service to load changes..."
@@ -356,39 +496,12 @@ else
   sudo -u "${APP_USER}" python3 -m venv "${APP_DIR}/.venv"
   sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m pip install --upgrade pip wheel setuptools
   sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" -m pip install -e "${APP_DIR}"
+  install_playwright_browser
 
   write_env_file
+  ensure_screenshot_dir
 
-  echo "Installing systemd service..."
-  cat > "/etc/systemd/system/${APP_NAME}.service" <<EOF
-[Unit]
-Description=Waechter URL scanning worker
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=simple
-User=${APP_USER}
-Group=${APP_USER}
-WorkingDirectory=${APP_DIR}
-EnvironmentFile=${ENV_FILE}
-ExecStart=${APP_DIR}/.venv/bin/python ${APP_DIR}/main.py
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=${APP_DIR} ${ENV_DIR}
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-  systemctl daemon-reload
+  install_or_update_service
   systemctl enable --now "${APP_NAME}.service"
 
   install_update_timer

@@ -28,7 +28,7 @@ class GoogleSafeBrowsingProvider(QuotaAwareProvider):
         # enabled flag respects config but requires an API key
         self.enabled = as_bool(cfg.get("enabled", True)) and bool(self.api_key)
 
-    async def scan(self, url: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
+    async def scan(self, url: str, session: aiohttp.ClientSession, link_id: str | None = None) -> Dict[str, Any]:
         if not self.enabled:
             return {"raw_score": 0.0}
 

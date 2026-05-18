@@ -19,7 +19,7 @@ class ScanProvider(ABC):
     enabled: bool = True
 
     @abstractmethod
-    async def scan(self, url: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
+    async def scan(self, url: str, session: aiohttp.ClientSession, link_id: str | None = None) -> Dict[str, Any]:
         """Gibt ein dict mit raw_score und optionalem raw_response zurück."""
         pass
 

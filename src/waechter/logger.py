@@ -12,6 +12,8 @@ class JSONFormatter(logging.Formatter):
         }
         if hasattr(record, 'extra_data') and isinstance(record.extra_data, dict):
             log_obj.update(record.extra_data)
+        if record.exc_info:
+            log_obj["exception"] = self.formatException(record.exc_info)
         return json.dumps(log_obj)
 
 def get_logger(name="waechter"):
