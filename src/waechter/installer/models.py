@@ -92,3 +92,10 @@ class InstallerConfig:
             paths.append(screenshot_path)
         return paths
 
+    @property
+    def protect_home_value(self) -> str:
+        screenshot_path = self.resolved_screenshot_dir
+        if self.screenshot_enabled and screenshot_path.is_absolute() and screenshot_path.parts[:2] == ("/", "home"):
+            return "false"
+        return "true"
+

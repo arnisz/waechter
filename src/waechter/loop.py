@@ -125,6 +125,7 @@ async def pull_loop(providers: List[ScanProvider], api: WorkerApi):
         except Exception as e:
             logger.error(f"Initialization failed: {e}")
             if "401" in str(e):
+                logger.error("Authentication failed (401). Check that WAECHTER_TOKEN is correct and WORKER_BASE_URL uses https://.")
                 sys.exit(1)
             # Sleep and let the loop handle it
 
@@ -146,6 +147,7 @@ async def pull_loop(providers: List[ScanProvider], api: WorkerApi):
             except Exception as e:
                 logger.error(f"Loop error: {e}")
                 if "401" in str(e):
+                    logger.error("Authentication failed (401). Check that WAECHTER_TOKEN is correct and WORKER_BASE_URL uses https://.")
                     sys.exit(1)
                 await asyncio.sleep(wait_ms / 1000.0)
 

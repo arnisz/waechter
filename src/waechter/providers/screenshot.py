@@ -1,4 +1,5 @@
 import os
+import pwd
 import re
 import sys
 from pathlib import Path
@@ -54,12 +55,7 @@ class ScreenshotProvider(ScanProvider):
         except Exception as e:
             self.enabled = False
             self.disabled_reason = "screenshot_dir_unavailable"
-            logger.error("screenshot_provider_init_failed", extra={"extra_data": {
-                "provider": self.name,
-                "dir": str(self.screenshot_dir),
-                "error_type": type(e).__name__,
-                "error": str(e),
-            }})
+            logger.error("screenshot_provider_init_failed", extra={"extra_data": self._diagnose_screenshot_dir_error(self.screenshot_dir, e)})
             return
 
         try:
@@ -79,6 +75,56 @@ class ScreenshotProvider(ScanProvider):
         from playwright.async_api import async_playwright
 
         return async_playwright
+
+    def _nearest_existing_parent(self, path: Path) -> Path | None:
+        current = path
+        while True:
+            if current.exists():
+                return current
+            if current.parent == current:
+                return None
+            current = current.parent
+
+    def _diagnose_screenshot_dir_error(self, path: Path, error: Exception) -> Dict[str, Any]:
+        nearest_parent = self._nearest_existing_parent(path)
+        nearest_parent_stat = None
+        nearest_parent_owner = None
+        if nearest_parent is not None:
+            try:
+                nearest_parent_stat = nearest_parent.stat()
+                nearest_parent_owner = pwd.getpwuid(nearest_parent_stat.st_uid).pw_name
+            except Exception:
+                nearest_parent_stat = None
+                nearest_parent_owner = None
+
+        try:
+            process_user = pwd.getpwuid(os.geteuid()).pw_name
+        except Exception:
+            process_user = None
+
+        path_is_under_home = path.is_absolute() and path.parts[:2] == ("/", "home")
+        install_hint = (
+            "Configured SCREENSHOT_DIR is under /home. If the worker runs via systemd, the service must allow home access and the parent directories must be traversable by the worker user. Prefer a directory under /opt/waechter if possible."
+            if path_is_under_home
+            else "Ensure the configured SCREENSHOT_DIR exists or can be created and is writable by the process user."
+        )
+
+        return {
+            "provider": self.name,
+            "dir": str(path),
+            "cwd": os.getcwd(),
+            "process_uid": os.geteuid(),
+            "process_user": process_user,
+            "path_is_absolute": path.is_absolute(),
+            "path_is_under_home": path_is_under_home,
+            "nearest_existing_parent": str(nearest_parent) if nearest_parent else None,
+            "nearest_existing_parent_mode": oct(nearest_parent_stat.st_mode & 0o777) if nearest_parent_stat else None,
+            "nearest_existing_parent_owner": nearest_parent_owner,
+            "nearest_existing_parent_writable": os.access(nearest_parent, os.W_OK | os.X_OK) if nearest_parent else False,
+            "error_type": type(error).__name__,
+            "error": str(error),
+            "install_hint": install_hint,
+        }
 
     def _playwright_cache_dir(self) -> str:
         browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")

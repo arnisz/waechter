@@ -20,17 +20,27 @@ def validate_required_config(config: InstallerConfig) -> None:
 
 
 def run_install(config: InstallerConfig, runner: CommandRunner) -> None:
-    logger.info("Running installer in auto mode")
-    validate_required_config(config)
-
     already_installed = config.is_installed
+
+    if already_installed:
+        logger.info("Detected existing installation — running in update mode")
+        if not config.worker_base_url or not config.waechter_token:
+            raise RuntimeError(
+                "Update mode detected but configuration in /etc/waechter/waechter.env "
+                "is incomplete or missing. Either restore it from backup or run a "
+                "fresh install with WORKER_BASE_URL and WAECHTER_TOKEN."
+            )
+    else:
+        logger.info("No existing service unit found — running in fresh install mode")
+        validate_required_config(config)
+
     ensure_system_user(config, runner)
     ensure_app_dir_ownership(config)
 
     install_runtime_dependencies(config, runner)
     clamav_changed = ensure_clamav(config, runner)
     env_changed = write_env_file(config)
-    ensure_screenshot_dir(config)
+    ensure_screenshot_dir(config, runner)
     install_playwright_browser(config, runner)
     bootstrap_changed = install_bootstrap_script(config, runner)
     service_changed, timer_changed = install_systemd_units(config, runner)

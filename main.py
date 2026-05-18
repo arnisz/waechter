@@ -22,6 +22,13 @@ async def main():
         logger.error("WORKER_BASE_URL and WAECHTER_TOKEN must be set")
         sys.exit(1)
 
+    if not base_url.startswith("https://"):
+        logger.error(
+            f"WORKER_BASE_URL must start with 'https://' (got: {base_url!r}). "
+            "A missing or wrong scheme often causes authentication errors."
+        )
+        sys.exit(1)
+
     api = WorkerApi(base_url, token)
 
     providers: List[ScanProvider] = []

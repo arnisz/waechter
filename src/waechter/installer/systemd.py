@@ -49,7 +49,7 @@ StandardError=journal
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome={config.protect_home_value}
 ReadWritePaths={read_write_paths}
 
 [Install]

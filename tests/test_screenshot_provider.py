@@ -144,6 +144,27 @@ def test_screenshot_provider_disables_when_dependency_missing(monkeypatch, tmp_p
     assert provider.disabled_reason == "playwright_not_installed"
 
 
+def test_screenshot_provider_logs_detailed_directory_diagnostics(monkeypatch):
+    monkeypatch.setenv("SCREENSHOT_ENABLED", "true")
+    monkeypatch.setenv("SCREENSHOT_DIR", "/home/example/screenshots")
+
+    def _raise_permission_error(self, parents=False, exist_ok=False):
+        raise PermissionError("[Errno 13] Permission denied: '/home/example'")
+
+    monkeypatch.setattr("pathlib.Path.mkdir", _raise_permission_error)
+
+    with patch.object(screenshot_module.logger, "error") as log_error:
+        provider = ScreenshotProvider()
+
+    assert provider.enabled is False
+    assert provider.disabled_reason == "screenshot_dir_unavailable"
+    log_error.assert_called_once()
+    extra_data = log_error.call_args.kwargs["extra"]["extra_data"]
+    assert extra_data["path_is_under_home"] is True
+    assert extra_data["nearest_existing_parent"] == "/home"
+    assert "Prefer a directory under /opt/waechter" in extra_data["install_hint"]
+
+
 @pytest.mark.asyncio
 async def test_screenshot_provider_logs_structured_launch_error_for_missing_browser_binary(monkeypatch, tmp_path):
     monkeypatch.setenv("SCREENSHOT_DIR", str(tmp_path))
