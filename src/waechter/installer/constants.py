@@ -34,6 +34,9 @@ ENV_KEYS = [
     "LOG_LEVEL",
     "THRESHOLD_WARNING",
     "THRESHOLD_BLOCK",
+    "REDIS_ENABLED",
+    "REDIS_URL",
+    "REDIS_TTL_SEC",
 ]
 
 DEFAULT_ENV_VALUES = {
@@ -53,5 +56,8 @@ DEFAULT_ENV_VALUES = {
     "LOG_LEVEL": "INFO",
     "THRESHOLD_WARNING": "0.70",
     "THRESHOLD_BLOCK": "0.95",
+    "REDIS_ENABLED": "true",
+    "REDIS_URL": "redis://localhost:6379/0",
+    "REDIS_TTL_SEC": "21600",
 }
 

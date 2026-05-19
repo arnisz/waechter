@@ -71,6 +71,9 @@ def build_config(mode: str = "auto", environ: dict[str, str] | None = None) -> I
         log_level=effective["LOG_LEVEL"],
         threshold_warning=effective["THRESHOLD_WARNING"],
         threshold_block=effective["THRESHOLD_BLOCK"],
+        redis_enabled=as_bool(effective.get("REDIS_ENABLED", "true")),
+        redis_url=effective.get("REDIS_URL", "redis://localhost:6379/0"),
+        redis_ttl_sec=effective.get("REDIS_TTL_SEC", "21600"),
         repo_updated=as_bool(env.get("WAECHTER_BOOTSTRAP_REPO_UPDATED"), default=False),
         mode=mode,
     )
@@ -99,6 +102,9 @@ def render_env_file(config: InstallerConfig) -> str:
         "LOG_LEVEL": config.log_level,
         "THRESHOLD_WARNING": config.threshold_warning,
         "THRESHOLD_BLOCK": config.threshold_block,
+        "REDIS_ENABLED": "true" if config.redis_enabled else "false",
+        "REDIS_URL": config.redis_url,
+        "REDIS_TTL_SEC": config.redis_ttl_sec,
     }
     return "".join(f"{key}={value}\n" for key, value in ordered_values.items())
 

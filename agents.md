@@ -90,6 +90,9 @@ Der `ScreenshotProvider` nutzt **Playwright** (async API) mit Headless‑Chromiu
 - Betrieb: Redis läuft idealerweise im RAM (nicht persistent).
 
 ## 8. Betrieb und Deployment
+n> **⚠️ WICHTIGER HINWEIS ZUM SYSTEM-INSTALLER:**
+> Der System-Installer (`waechter.installer`) verwendet eine strikte Allowlist (Whitelist) für Umgebungsvariablen (`ENV_KEYS`). Variablen, die nicht explizit in dieser Liste im Code hinterlegt sind, werden bei einem Lauf des Installers (z. B. bei einem Update) stillschweigend aus der `/etc/waechter/waechter.env` entfernt. Dies kann dazu führen, dass funktionierende Konfigurationen (wie z.B. Caching via Redis) plötzlich nicht mehr greifen und funktionierende Systeme beschädigt werden. Zudem werden lokale Dateien wie `waechter.yaml` und Keyword-CSVs nun aus `.example`-Vorlagen generiert, um ein Überschreiben lokaler Änderungen durch Updates zu verhindern. Bei Modifikationen am System muss stets sichergestellt werden, dass neue ENV-Variablen auch im Installer Code (`constants.py`, `models.py`, `env.py`) eingetragen werden!
+
 
 - Shell-Installer: `install.sh` ist nun ein **selbsttragender** Bootstrap für Systemdeployments und Curl-and-run-Szenarien. Er prüft Root-Rechte, installiert minimale Bootstrap-Pakete (`git`, `python3`, `python3-venv`, `ca-certificates`), klont/aktualisiert das Repo nach `/opt/waechter`, erzeugt die venv und ruft anschließend den Python-Installer via `python -m waechter.installer` auf.
 - Python-Installer: Die eigentliche Installationslogik liegt jetzt unter `waechter.installer.*` (`env`, `clamav`, `playwright`, `systemd`, `users`, `uninstall`, `runtime`). Damit sind Parsing, Idempotenz, Fehlerbehandlung und Tests in Python statt in Bash konzentriert.

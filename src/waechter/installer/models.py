@@ -24,6 +24,9 @@ class InstallerConfig:
     log_level: str
     threshold_warning: str
     threshold_block: str
+    redis_enabled: bool
+    redis_url: str
+    redis_ttl_sec: str
     repo_updated: bool = False
     mode: str = "auto"
 
