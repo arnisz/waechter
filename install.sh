@@ -7,6 +7,30 @@ REPO_URL="https://github.com/arnisz/waechter.git"
 BRANCH="master"
 MODE="${1:-auto}"
 
+# Helper function to parse .env files and export variables
+# Handles: KEY=VALUE, KEY="VALUE", KEY='VALUE', KEY=
+# Ignores lines starting with # and empty lines.
+parse_env_file() {
+  local env_file="$1"
+  if [[ -f "$env_file" ]]; then
+    echo "Loading environment variables from ${env_file}..."
+    # Read each line, ignore comments and empty lines
+    while IFS='=' read -r key value || [[ -n "$key" ]]; do
+      # Remove leading/trailing whitespace from key
+      key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      # Remove leading/trailing whitespace and quotes from value
+      value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^"\(.*\)"$/\1/;s/^'"'"'\(.*\)'"'"'$/\1/')
+
+      # Only export if key is not empty and not a comment
+      if [[ -n "$key" && "${key:0:1}" != '#' ]]; then
+        # Export the variable
+        export "$key"="$value"
+        # echo "Exported: $key" # Uncomment for debugging
+      fi
+    done < <(grep -v '^\s*#' "$env_file") # Filter out comments and empty lines
+  fi
+}
+
 require_root() {
   if [[ "${EUID}" -ne 0 ]]; then
     echo "ERROR: This script must be run as root." >&2
@@ -158,6 +182,11 @@ fallback_uninstall() {
 main() {
   require_root
 
+  # Load environment variables from .env file if it exists in the script's directory
+  local install_script_dir
+  install_script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
+  parse_env_file "${install_script_dir}/.env"
+
   if [[ "${MODE}" == "uninstall" && ! -d "${APP_DIR}" ]]; then
     echo "No repository checkout found in ${APP_DIR}; removing leftover system files only."
     fallback_uninstall
@@ -173,4 +202,3 @@ main() {
 }
 
 main "$@"
-
