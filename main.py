@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from waechter.api import WorkerApi
 from waechter import __version__
-from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider, ScreenshotProvider, ScanProvider
+from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider, ScreenshotProvider, ScanProvider, PhishStatsProvider
 from waechter.loop import pull_loop
 from waechter.logger import get_logger
 from waechter.config_loader import as_bool, provider_cfg
@@ -50,6 +50,10 @@ async def main():
     gsb_cfg = provider_cfg("google_safe_browsing")
     if gsb_key and as_bool(gsb_cfg.get("enabled", True)):
         providers.append(cast(ScanProvider, GoogleSafeBrowsingProvider(gsb_key)))
+
+    phishstats_cfg = provider_cfg("phishstats")
+    if as_bool(phishstats_cfg.get("enabled", True)):
+        providers.append(cast(ScanProvider, PhishStatsProvider()))
 
     # Add ScreenshotProvider last for security reasons (only after other checks)
     screenshot_provider = ScreenshotProvider()

@@ -69,6 +69,12 @@ providers:
     timeout_ms: 10000
     no_sandbox: false
 
+  phishstats:
+    enabled: true
+    weight: 0.7
+    api:
+      daily_limit: 10000
+
 
 redis:
   url: "redis://localhost:6379/0"
