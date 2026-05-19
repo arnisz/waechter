@@ -38,15 +38,29 @@ class GoogleSafeBrowsingProvider(QuotaAwareProvider):
 
         # Optional Redis Cache
         self.redis_client = None
-        self.redis_ttl = 3600
+        self.redis_ttl = 21600
         
         redis_cfg = cfg_get("redis", {})
-        if redis and as_bool(redis_cfg.get("enabled", False)):
-            url_redis = redis_cfg.get("url")
+        
+        import os
+        redis_enabled_env = os.environ.get("REDIS_ENABLED")
+        if redis_enabled_env is not None:
+            redis_enabled = as_bool(redis_enabled_env)
+        else:
+            redis_enabled = as_bool(redis_cfg.get("enabled", False))
+
+        if redis and redis_enabled:
+            url_redis = os.environ.get("REDIS_URL", redis_cfg.get("url"))
             if url_redis:
                 try:
                     self.redis_client = redis.from_url(url_redis, decode_responses=True)
-                    self.redis_ttl = int(redis_cfg.get("ttl_sec", 3600))
+                    
+                    ttl_env = os.environ.get("REDIS_TTL_SEC")
+                    if ttl_env is not None:
+                        self.redis_ttl = int(ttl_env)
+                    else:
+                        self.redis_ttl = int(redis_cfg.get("ttl_sec", 21600))
+                        
                     logger.info("GoogleSafeBrowsing: Redis cache enabled", extra={"extra_data": {"url": url_redis, "ttl": self.redis_ttl}})
                 except Exception as e:
                     logger.warning("GoogleSafeBrowsing: Failed to connect to Redis: %s", e)

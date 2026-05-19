@@ -56,15 +56,29 @@ class PhishStatsProvider(QuotaAwareProvider):
 
         # ── Redis-Cache (optional) ────────────────────────────────────
         self.redis_client = None
-        self.redis_ttl: int = 3600  # Fallback: 1 Stunde
+        self.redis_ttl: int = 21600  # Fallback: 6 Stunden
 
         redis_cfg = cfg_get("redis", {})
-        if redis and as_bool(redis_cfg.get("enabled", False)):
-            redis_url = redis_cfg.get("url")
+        
+        import os
+        redis_enabled_env = os.environ.get("REDIS_ENABLED")
+        if redis_enabled_env is not None:
+            redis_enabled = as_bool(redis_enabled_env)
+        else:
+            redis_enabled = as_bool(redis_cfg.get("enabled", False))
+
+        if redis and redis_enabled:
+            redis_url = os.environ.get("REDIS_URL", redis_cfg.get("url"))
             if redis_url:
                 try:
                     self.redis_client = redis.from_url(redis_url, decode_responses=True)
-                    self.redis_ttl = int(redis_cfg.get("ttl_sec", self.redis_ttl))
+                    
+                    ttl_env = os.environ.get("REDIS_TTL_SEC")
+                    if ttl_env is not None:
+                        self.redis_ttl = int(ttl_env)
+                    else:
+                        self.redis_ttl = int(redis_cfg.get("ttl_sec", 21600))
+                        
                     logger.info(
                         "%s: Redis-Cache aktiviert",
                         self.name,

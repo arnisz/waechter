@@ -78,5 +78,5 @@ providers:
 
 redis:
   url: "redis://localhost:6379/0"
-  ttl_sec: 3600  # 1 hour cache
+  ttl_sec: 21600  # 6 hours cache
   enabled: true
