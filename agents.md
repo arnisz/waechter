@@ -22,6 +22,7 @@ Dieses Dokument beschreibt Zweck, Architektur, Datenfluss, Konfiguration und Bet
     - `HeuristicProvider` – immer aktiv; statische/heuristische Merkmale (IP‑Host, verdächtige TLDs, sehr lange URLs, Brand‑Imitation mit Keywords und offiziellen Domains, Punycode, Redirect‑Muster, HTML‑Formularindikatoren, Domainalter über WHOIS).
     - `GoogleSafeBrowsingProvider` – optional, benötigt `GOOGLE_SAFE_BROWSING_API_KEY`.
     - `ClamAVProvider` – optional, `CLAMAV_ENABLED=true`; lädt Inhalte (Größen‑ und Redirect‑Limits) und prüft per lokalem `clamd` (INSTREAM).
+- `PhishStatsProvider` – standardmäßig aktiv; fragt die kostenfreie PhishStats-Datenbank ab; nutzt optionalen Redis-Cache.
     - `ScreenshotProvider` – optional, `SCREENSHOT_ENABLED=true`; öffnet die URL in einem Playwright‑gesteuerten Headless‑Chromium, rendert die Seite und speichert ein PNG‑Abbild (1024 × 768 px) unter `SCREENSHOT_DIR/<link_id>.png`. Liefert keinen Score, stellt das Bild aber nachgelagerten Analyse‑Schritten bereit.
 
 - Aggregation (`waechter.aggregation`)
@@ -98,6 +99,7 @@ Der `ScreenshotProvider` nutzt **Playwright** (async API) mit Headless‑Chromiu
 - Single‑Binary Start: `python main.py` (nach Aktivierung des venv)
 - Logging: `LOG_LEVEL=DEBUG` für Diagnose; bei systemd werden ENV nicht vom Shell‑Kontext geerbt → `EnvironmentFile` benutzen.
 - ClamAV: `clamd` muss laufen und Socket‑Pfad muss passen; Größen‑ und Redirect‑Limits beachten.
+- PhishStats: API-Key-frei; nutzt `_where`-Filter für exakte URL-Matches.
 - ClamAV HTTP-Fehlerdiagnose: Wenn Zielseiten automatisierte Abrufe blockieren (z. B. `403 Forbidden`, WAF/Bot-Protection), loggt der Provider strukturierte Diagnosefelder wie `http_status`, `final_url`, `redirect_count`, `server`, `response_preview` und `block_hint`. Dadurch lassen sich Access-Denied-/Bot-Block-Fälle wesentlich schneller eingrenzen.
 - Screenshot‑Provider: `playwright install chromium` nach `pip install playwright` ausführen; auf headless‑Servern ggf. `libgbm`, `libnss3` und weitere System‑Abhängigkeiten installieren. Screenshots landen unter `SCREENSHOT_DIR` (Standard: `./screenshots`); Verzeichnis muss vom Worker‑Prozess beschreibbar sein.
 - Skalierung: Mehrere Worker‑Instanzen möglich; Backend sollte Idempotenz/Claiming sicherstellen. Jede Instanz benötigt einen eigenen `SCREENSHOT_DIR`, falls Screenshots persistent gespeichert werden sollen.

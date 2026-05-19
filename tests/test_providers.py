@@ -1,3 +1,4 @@
+from datetime import datetime
 import pytest
 import aiohttp
 from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider
@@ -235,3 +236,33 @@ async def test_clamav_provider_logs_structured_http_error_for_blocked_fetch():
     assert "Access Denied" in extra_data["response_preview"]
 
 
+
+
+@pytest.mark.asyncio
+async def test_heuristic_provider_scores_suspicious_godaddy_subdomain(monkeypatch):
+    """
+    Test that a suspicious subdomain on a known site-builder (like godaddysites.com)
+    should NOT be scored as 0, even if the base domain is old.
+    
+    Reproducer for reported issue: https://site-v4y2ws0vq.godaddysites.com/
+    Currently this test FAILS as expected.
+    """
+    provider = HeuristicProvider()
+    
+    # Mock WHOIS to return an OLD creation date (2013) to reflect real world godaddysites.com
+    async def mock_whois_old(hostname):
+        return 0.0
+
+    monkeypatch.setattr(provider, "_check_whois_age", mock_whois_old)
+    
+    url = "https://site-v4y2ws0vq.godaddysites.com/"
+    
+    async with aiohttp.ClientSession() as session:
+        with aioresponses() as m:
+            m.get(url, status=200, body="<html></html>")
+            m.head(url, status=200)
+            
+            res = await provider.scan(url, session)
+            
+    # Expected: score > 0 because site-v4y2ws0vq is a suspicious random-looking subdomain
+    assert res["raw_score"] > 0

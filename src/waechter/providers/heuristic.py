@@ -130,6 +130,13 @@ class HeuristicProvider(ScanProvider):
             if path_score > 0:
                 self._add_signal(signals, "suspicious_path", path_score)
 
+            # 5b. Subdomain Heuristics
+            subdomain_score = self._check_subdomain_heuristics(hostname)
+            if official_brand_domain:
+                subdomain_score *= 0.1
+            if subdomain_score > 0:
+                self._add_signal(signals, "suspicious_subdomain", subdomain_score)
+
             # 6. AWS Lambda Phishing
             if re.search(r'\.lambda-url\..*\.on\.aws$', hostname, re.IGNORECASE):
                 self._add_signal(signals, "aws_lambda_phishing", self.sc_aws_lambda)
@@ -433,3 +440,20 @@ class HeuristicProvider(ScanProvider):
             if self._is_official_brand_domain(brand, hostname):
                 return True
         return False
+
+    def _check_subdomain_heuristics(self, hostname: str) -> float:
+        ext = _TLD_EXTRACT(hostname)
+        subdomain = ext.subdomain
+        if not subdomain:
+            return 0.0
+            
+        score = 0.0
+        if len(subdomain) > 10:
+            score = 0.2
+            # Check for special characters (not letters or digits)
+            # We use isalnum() but we must consider that a subdomain can have dots 
+            # if it has multiple levels. However, tldextract gives the full subdomain part.
+            # If the user says "special characters", typically non-alphanumeric.
+            if not subdomain.replace(".", "").isalnum():
+                score = 0.4
+        return score

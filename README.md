@@ -20,6 +20,7 @@ Current version: **0.1.0**
 - A backend implementing the internal Waechter API endpoints listed below.
 - Optional: Google Safe Browsing API key.
 - Optional: ClamAV daemon on Linux/Raspberry Pi for local content scanning.
+- Optional: PhishStats community database for open-source phishing intelligence.
 
 ## Installation
 
@@ -51,6 +52,7 @@ You will be prompted for:
 - optional `GOOGLE_SAFE_BROWSING_API_KEY`
 - polling, batch, threshold, and concurrency settings
 - optional ClamAV settings
+- optional PhishStats settings
 - screenshot settings (`SCREENSHOT_ENABLED`, `SCREENSHOT_DIR`, `SCREENSHOT_TIMEOUT_MS`, `SCREENSHOT_NO_SANDBOX`)
 - optional Playwright Chromium installation
 
@@ -429,6 +431,10 @@ amazon,pay.amazon.de,exact
 Enabled when `GOOGLE_SAFE_BROWSING_API_KEY` is set. It uses the Google Safe Browsing threat match API and returns `raw_score = 1.0` when a match is found. Zur Reduzierung der API-Last kann ein optionaler Redis-Cache konfiguriert werden (`REDIS_ENABLED=true`). Ist Redis nicht erreichbar oder nicht konfiguriert, erfolgt die Abfrage direkt.
 
 Enabled when `GOOGLE_SAFE_BROWSING_API_KEY` is set. It uses the Google Safe Browsing threat match API and returns `raw_score = 1.0` when a match is found.
+
+### PhishStats Provider
+
+Always enabled (unless explicitly disabled in config). Queries the PhishStats community database for known phishing URLs. Returns `raw_score = 1.0` on a hit. Supports optional Redis caching.
 
 ### ClamAV Provider
 

@@ -15,6 +15,12 @@ Die Anforderungen aus dem überarbeiteten Pflichtenheft Version 1.1 wurden analy
 - [x] Unittests geschrieben (`tests/test_aggregation.py`, `tests/test_providers.py`) und erfolgreich durchgelaufen.
 - [x] Fix: ClamAVProvider respektiert nun die Umgebungsvariable `CLAMAV_ENABLED` (Vorrang vor YAML-Config).
 - [x] Verbesserung: Explizites Logging von Exceptions in ClamAVProvider bei Download- oder Scan-Fehlern.
+- [x] PhishStats-Provider (`PhishStatsProvider`): Abfrage der kostenfreien PhishStats Community-Datenbank.
+  - API: `https://api.phishstats.info/api/phishing` (API-Key-frei).
+  - Implementierung: `src/waechter/providers/phishstats.py`, Registrierung in `src/waechter/providers/__init__.py`, Integration in `main.py`.
+  - Besonderheit: Nutzt optionalen Redis-Cache zur Lastreduzierung.
+  - Gewicht: 0.7 (Standard).
+  - Tests: `tests/test_phishstats.py`.
 
 ## In Arbeit
 - Das Basis MVP (Phase 1-4) ist fertig.
@@ -75,6 +81,12 @@ Die Anforderungen aus dem überarbeiteten Pflichtenheft Version 1.1 wurden analy
 - Deployment Setup / Containerisierung / systemd Konfiguration auf dem Hetzner VPS und Cloudflare Konfiguration prüfen.
 - Systemd-Unit um `SCREENSHOT_DIR` und optionale Sandbox-Einstellung erweitern; auf Zielsystemen die benötigten Headless-Bibliotheken für Chromium prüfen.
 - **2026-05-19**: Optionaler Redis-Cache für Google Safe Browsing implementiert.
+- **2026-05-19**: PhishStats-Provider integriert.
+  - Implementierung des `PhishStatsProvider` basierend auf der offenen REST-Schnittstelle von PhishStats.
+  - Gewichtung auf 0,7 festgelegt.
+  - Integration in den `pull_loop` und `main.py` abgeschlossen.
+  - Konfiguration in `config/waechter.yaml` ergänzt.
+  - Unit-Tests in `tests/test_phishstats.py` erfolgreich durchgeführt.
   - Redis wird zur Vermeidung hoher Belastungen von GSB (API-Quota-Schutz) genutzt.
   - Konfiguration via YAML (`redis`-Block) oder ENV möglich.
   - Implementierung in `GoogleSafeBrowsingProvider` mit Fallback-Logik (wenn Redis fehlt oder fehlerhaft ist, erfolgt die API-Anfrage direkt).
