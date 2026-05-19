@@ -54,11 +54,17 @@ class ScreenshotProvider(ScanProvider):
         except Exception as e:
             self.enabled = False
             self.disabled_reason = "screenshot_dir_unavailable"
+            p = self.screenshot_dir
+            nearest = next((a for a in [p, *p.parents] if a.exists()), Path("/"))
+            under_home = p.parts[:2] == ("/", "home") if p.is_absolute() else False
             logger.error("screenshot_provider_init_failed", extra={"extra_data": {
                 "provider": self.name,
-                "dir": str(self.screenshot_dir),
+                "dir": str(p),
                 "error_type": type(e).__name__,
                 "error": str(e),
+                "path_is_under_home": under_home,
+                "nearest_existing_parent": str(nearest),
+                "install_hint": "Prefer a directory under /opt/waechter (e.g. /opt/waechter/screenshots) to avoid permission issues.",
             }})
             return
 

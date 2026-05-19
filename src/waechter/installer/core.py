@@ -42,7 +42,7 @@ def run_install(config: InstallerConfig, runner: CommandRunner) -> None:
     install_runtime_dependencies(config, runner)
     clamav_changed = ensure_clamav(config, runner)
     env_changed = write_env_file(config)
-    ensure_screenshot_dir(config)
+    ensure_screenshot_dir(config, runner)
     install_playwright_browser(config, runner)
     bootstrap_changed = install_bootstrap_script(config, runner)
     service_changed, timer_changed = install_systemd_units(config, runner)

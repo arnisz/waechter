@@ -27,6 +27,9 @@ def build_config(**overrides) -> InstallerConfig:
         log_level="INFO",
         threshold_warning="0.70",
         threshold_block="0.95",
+        redis_enabled=False,
+        redis_url="",
+        redis_ttl_sec="300",
         repo_updated=False,
         mode="auto",
     )

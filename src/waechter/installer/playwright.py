@@ -69,7 +69,7 @@ def install_runtime_dependencies(config: InstallerConfig, runner: CommandRunner)
     return True
 
 
-def ensure_screenshot_dir(config: InstallerConfig) -> bool:
+def ensure_screenshot_dir(config: InstallerConfig, runner: CommandRunner) -> bool:
     if not config.screenshot_enabled:
         return False
 
@@ -78,6 +78,10 @@ def ensure_screenshot_dir(config: InstallerConfig) -> bool:
     path.mkdir(parents=True, exist_ok=True)
     os.chmod(path, 0o750)
     ensure_path_owner(path, config.app_user, config.app_user, recursive=False)
+    runner.run_as_user(
+        config.app_user,
+        ["python3", "-c", f"import os; exit(0 if os.access('{path}', os.W_OK) else 1)"],
+    )
     return not existed
 
 
