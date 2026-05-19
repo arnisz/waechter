@@ -74,3 +74,9 @@ Die Anforderungen aus dem überarbeiteten Pflichtenheft Version 1.1 wurden analy
 ## Nächste Schritte
 - Deployment Setup / Containerisierung / systemd Konfiguration auf dem Hetzner VPS und Cloudflare Konfiguration prüfen.
 - Systemd-Unit um `SCREENSHOT_DIR` und optionale Sandbox-Einstellung erweitern; auf Zielsystemen die benötigten Headless-Bibliotheken für Chromium prüfen.
+- **2026-05-19**: Optionaler Redis-Cache für Google Safe Browsing implementiert.
+  - Redis wird zur Vermeidung hoher Belastungen von GSB (API-Quota-Schutz) genutzt.
+  - Konfiguration via YAML (`redis`-Block) oder ENV möglich.
+  - Implementierung in `GoogleSafeBrowsingProvider` mit Fallback-Logik (wenn Redis fehlt oder fehlerhaft ist, erfolgt die API-Anfrage direkt).
+  - Cache-Keys basieren auf SHA-256 Hashes der URLs; TTL ist konfigurierbar (Standard: 1 Stunde).
+  - Da Redis im RAM läuft, ist der Cache nicht persistent, was den Anforderungen entspricht.

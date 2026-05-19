@@ -167,6 +167,9 @@ SCAN_CONCURRENCY=20
 BATCH_SIZE=50
 MIN_WAIT_MS=5000
 MAX_WAIT_MS=60000
+REDIS_ENABLED=true
+REDIS_URL=redis://localhost:6379/0
+REDIS_TTL_SEC=3600
 LOG_LEVEL=INFO
 THRESHOLD_WARNING=0.70
 THRESHOLD_BLOCK=0.95
@@ -422,7 +425,8 @@ amazon,pay.amazon.de,exact
 
 `match_mode=etld1` matches the registrable domain, for example `www.amazon.de` -> `amazon.de`. `match_mode=exact` matches only the exact hostname. Known official brand domains reduce soft context signals such as login, payment, and form keywords, but they are not a full whitelist.
 
-### Google Safe Browsing Provider
+### Google Safe Browsing Provider (mit optionalem Redis-Cache)
+Enabled when `GOOGLE_SAFE_BROWSING_API_KEY` is set. It uses the Google Safe Browsing threat match API and returns `raw_score = 1.0` when a match is found. Zur Reduzierung der API-Last kann ein optionaler Redis-Cache konfiguriert werden (`REDIS_ENABLED=true`). Ist Redis nicht erreichbar oder nicht konfiguriert, erfolgt die Abfrage direkt.
 
 Enabled when `GOOGLE_SAFE_BROWSING_API_KEY` is set. It uses the Google Safe Browsing threat match API and returns `raw_score = 1.0` when a match is found.
 

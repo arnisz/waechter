@@ -81,6 +81,13 @@ Der `ScreenshotProvider` nutzt **Playwright** (async API) mit Headless‑Chromiu
 - Netzwerkfehler/Timeouts führen zu defensiven Defaults (z. B. WHOIS‑Fail‑Default, HTML‑Analyse best‑effort).
 - Bei `401 Unauthorized` beendet der Worker den Prozess frühzeitig.
 
+## 7.5 Redis Caching (optional)
+
+- Wird aktuell vom GoogleSafeBrowsingProvider genutzt, um API-Quota zu sparen.
+- Falls Redis nicht konfiguriert oder nicht erreichbar ist, erfolgen die Anfragen direkt (Fallback).
+- Cache-Keys: gsb_cache:<sha256_url_hash>, TTL konfigurierbar.
+- Betrieb: Redis läuft idealerweise im RAM (nicht persistent).
+
 ## 8. Betrieb und Deployment
 
 - Shell-Installer: `install.sh` ist nun ein **selbsttragender** Bootstrap für Systemdeployments und Curl-and-run-Szenarien. Er prüft Root-Rechte, installiert minimale Bootstrap-Pakete (`git`, `python3`, `python3-venv`, `ca-certificates`), klont/aktualisiert das Repo nach `/opt/waechter`, erzeugt die venv und ruft anschließend den Python-Installer via `python -m waechter.installer` auf.

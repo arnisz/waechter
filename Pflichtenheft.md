@@ -35,7 +35,7 @@ F2. Nebenläufige Verarbeitung
 
 F3. Provider‑Prüfungen
 - Heuristik: URL/Host/Keyword‑Signale, Redirect‑ und HTML‑Indikatoren, WHOIS‑basierte Altersprüfung.
-- Google Safe Browsing: Bedrohungstreffer → hoher Score.
+- Google Safe Browsing: Bedrohungstreffer → hoher Score. Optionaler Redis-Cache zur Lastreduzierung implementiert.
 - ClamAV: Inhalte herunterladen (nur http/https), Redirect‑Limit, Größenlimit, Scan via `clamd`.
 - Screenshot‑Rendering: Jede neue URL wird in einem automatisierten Headless‑Browser geöffnet und als PNG‑Screenshot (1024 × 768 px) gerendert. Das Abbild steht nachgelagerten Analyse‑Schritten (z. B. visuelle Phishing‑Erkennung, OCR‑basierte Inhaltsauswertung) zur Verfügung.
 
@@ -74,7 +74,7 @@ N5. Observability
 
 - Interne Backend‑API: wie in README beschrieben (Health, Pending, Scan‑Result, Release‑Stale).
 - Externe Provider:
-  - Google Safe Browsing: HTTP API mit API‑Key, Quotenbeachtung.
+  - Google Safe Browsing: HTTP API mit API‑Key, Quotenbeachtung. Redis-Cache zur Lastreduzierung (optional).
   - ClamAV: lokaler Socket (`INSTREAM`), Rechte und Pfad müssen konfiguriert sein.
   - WHOIS: Abfragen über `python-whois` gegen Registrare (Rate‑Limits/Bans beachten).
   - Headless‑Browser (Playwright): lokale Chromium‑Instanz; kein Netzwerkzugang zu internen Systemen; Timeout und Sandbox‑Einschränkungen beachten. Screenshots werden als PNG (1024 × 768 px) abgelegt; Pfad konfigurierbar (`SCREENSHOT_DIR`).
