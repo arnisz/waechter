@@ -55,8 +55,34 @@ refresh_repository() {
   remote_commit="$(git -C "${APP_DIR}" rev-parse "origin/${BRANCH}")"
 
   if [[ "${local_commit}" != "${remote_commit}" ]]; then
+  # Safety backup of user-editable files before potentially destructive git operations
+  local protected_dir
+  protected_dir=$(mktemp -d)
+  local -a protected_files=(
+    "config/waechter.yaml"
+    "data/keywords/heuristic/brand_keywords.csv"
+    "data/keywords/heuristic/brand_domains.csv"
+    "data/keywords/heuristic/path_keywords.csv"
+    "data/keywords/heuristic/url_keywords.csv"
+  )
+  for f in "${protected_files[@]}"; do
+    if [[ -f "${APP_DIR}/$f" ]]; then
+       mkdir -p "${protected_dir}/$(dirname "$f")"
+       cp "${APP_DIR}/$f" "${protected_dir}/$f"
+    fi
+  done
+
     echo "Applying update ${local_commit} -> ${remote_commit}..."
     git -C "${APP_DIR}" reset --hard "origin/${BRANCH}"
+    # Restore protected files if they were backed up
+    for f in "${protected_files[@]}"; do
+      if [[ -f "${protected_dir}/$f" ]]; then
+         mkdir -p "${APP_DIR}/$(dirname "$f")"
+         cp "${protected_dir}/$f" "${APP_DIR}/$f"
+      fi
+    done
+    rm -rf "${protected_dir}"
+
     export WAECHTER_BOOTSTRAP_REPO_UPDATED=1
   else
     echo "Repository already up to date."

@@ -231,29 +231,25 @@ def ensure_directories_and_files() -> None:
     cfg_dir.mkdir(parents=True, exist_ok=True)
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    cfg_file = cfg_dir / "waechter.yaml"
-    if not cfg_file.exists():
-        cfg_file.write_text(DEFAULT_CONFIG_YAML, encoding="utf-8")
-        info(f"Konfigurationsdatei erstellt: {cfg_file}")
-    else:
-        info(f"Konfigurationsdatei vorhanden: {cfg_file}")
+    def ensure_file(target: Path, default_content: str) -> None:
+        if target.exists():
+            info(f"Datei vorhanden: {target}")
+            return
 
-    brand = data_dir / "brand_keywords.csv"
-    brand_domains = data_dir / "brand_domains.csv"
-    path_csv = data_dir / "path_keywords.csv"
-    url_csv = data_dir / "url_keywords.csv"
-    if not brand.exists():
-        brand.write_text(DEFAULT_BRAND_CSV, encoding="utf-8")
-        info(f"Brand-CSV erstellt: {brand}")
-    if not brand_domains.exists():
-        brand_domains.write_text(DEFAULT_BRAND_DOMAINS_CSV, encoding="utf-8")
-        info(f"Brand-Domains-CSV erstellt: {brand_domains}")
-    if not path_csv.exists():
-        path_csv.write_text(DEFAULT_PATH_CSV, encoding="utf-8")
-        info(f"Path-CSV erstellt: {path_csv}")
-    if not url_csv.exists():
-        url_csv.write_text(DEFAULT_URL_CSV, encoding="utf-8")
-        info(f"URL-CSV erstellt: {url_csv}")
+        example = target.with_suffix(target.suffix + ".example")
+        if example.exists():
+            import shutil
+            shutil.copy(example, target)
+            info(f"Datei aus Template erstellt: {target}")
+        else:
+            target.write_text(default_content, encoding="utf-8")
+            info(f"Datei mit Standardwerten erstellt: {target}")
+
+    ensure_file(cfg_dir / "waechter.yaml", DEFAULT_CONFIG_YAML)
+    ensure_file(data_dir / "brand_keywords.csv", DEFAULT_BRAND_CSV)
+    ensure_file(data_dir / "brand_domains.csv", DEFAULT_BRAND_DOMAINS_CSV)
+    ensure_file(data_dir / "path_keywords.csv", DEFAULT_PATH_CSV)
+    ensure_file(data_dir / "url_keywords.csv", DEFAULT_URL_CSV)
 
 
 def python_executable_of_venv(venv_dir: Path) -> Path:

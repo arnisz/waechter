@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from waechter.installer.clamav import ensure_clamav
+from waechter.installer.data import ensure_data_and_config
 from waechter.installer.env import write_env_file
 from waechter.installer.models import InstallerConfig
 from waechter.installer.playwright import ensure_screenshot_dir, install_playwright_browser, install_runtime_dependencies
@@ -36,6 +37,7 @@ def run_install(config: InstallerConfig, runner: CommandRunner) -> None:
 
     ensure_system_user(config, runner)
     ensure_app_dir_ownership(config)
+    ensure_data_and_config(config)
 
     install_runtime_dependencies(config, runner)
     clamav_changed = ensure_clamav(config, runner)
