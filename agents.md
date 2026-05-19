@@ -22,8 +22,8 @@ Dieses Dokument beschreibt Zweck, Architektur, Datenfluss, Konfiguration und Bet
     - `HeuristicProvider` – immer aktiv; statische/heuristische Merkmale (IP‑Host, verdächtige TLDs, sehr lange URLs, Brand‑Imitation mit Keywords und offiziellen Domains, Punycode, Redirect‑Muster, HTML‑Formularindikatoren, Domainalter über WHOIS).
     - `GoogleSafeBrowsingProvider` – optional, benötigt `GOOGLE_SAFE_BROWSING_API_KEY`.
     - `ClamAVProvider` – optional, `CLAMAV_ENABLED=true`; lädt Inhalte (Größen‑ und Redirect‑Limits) und prüft per lokalem `clamd` (INSTREAM).
-- `PhishStatsProvider` – standardmäßig aktiv; fragt die kostenfreie PhishStats-Datenbank ab; nutzt optionalen Redis-Cache.
-    - `ScreenshotProvider` – optional, `SCREENSHOT_ENABLED=true`; öffnet die URL in einem Playwright‑gesteuerten Headless‑Chromium, rendert die Seite und speichert ein PNG‑Abbild (1024 × 768 px) unter `SCREENSHOT_DIR/<link_id>.png`. Liefert keinen Score, stellt das Bild aber nachgelagerten Analyse‑Schritten bereit.
+    - `PhishStatsProvider` – standardmäßig aktiv; fragt die kostenfreie PhishStats-Datenbank ab; nutzt optionalen Redis-Cache.
+    - `ScreenshotProvider` – aktiv per Default, abschaltbar via `SCREENSHOT_ENABLED=false`; öffnet die URL in einem Playwright‑gesteuerten Headless‑Chromium, rendert die Seite und speichert ein PNG‑Abbild (1024 × 768 px) unter `SCREENSHOT_DIR/<link_id>.png`. Liefert keinen Score, stellt das Bild aber nachgelagerten Analyse‑Schritten bereit.
 
 - Aggregation (`waechter.aggregation`)
   - Kombiniert Provider‑Ergebnisse mit gewichtetem Bayesian noisy‑OR: P(malicious) = 1 − Π(1 − raw_score)^weight.
@@ -62,7 +62,7 @@ Der `HeuristicProvider` nutzt u. a.:
 - Redirect‑Heuristiken (Anzahl, Domain‑Mismatch, Redirect auf IP)
 - HTML‑Signale (Formular + Passwort/Email, XHR/fetch)
 
-Hinweis zu WHOIS: Aktuell erfolgt die Abfrage pro registrierbarer Basis‑Domain synchron via `python-whois` im Thread‑Pool (siehe `_check_whois_age`). Ein explizites Cache‑Layer ist noch nicht implementiert (siehe Pflichtenheft, Punkt 3).
+Hinweis zu WHOIS: Aktuell erfolgt die Abfrage pro registrierbarer Basis‑Domain synchron via `python-whois` im Thread‑Pool (siehe `_check_whois_age`). Ein explizites Cache‑Layer ist noch nicht implementiert (siehe Pflichtenheft, Punkt 1).
 
 ## 6. Provider – Details Screenshot
 
@@ -84,13 +84,14 @@ Der `ScreenshotProvider` nutzt **Playwright** (async API) mit Headless‑Chromiu
 
 ## 7.5 Redis Caching (optional)
 
-- Wird aktuell vom GoogleSafeBrowsingProvider genutzt, um API-Quota zu sparen.
+- Wird vom GoogleSafeBrowsingProvider und vom PhishStatsProvider genutzt, um API-Quota bzw. Last auf der PhishStats-Community-API zu sparen.
 - Falls Redis nicht konfiguriert oder nicht erreichbar ist, erfolgen die Anfragen direkt (Fallback).
-- Cache-Keys: gsb_cache:<sha256_url_hash>, TTL konfigurierbar.
+- Cache-Keys: provider-spezifisch (z. B. `gsb_cache:<sha256_url_hash>`, `phishstats_cache:<sha256_url_hash>`), TTL konfigurierbar (`REDIS_TTL_SEC`).
 - Betrieb: Redis läuft idealerweise im RAM (nicht persistent).
 
 ## 8. Betrieb und Deployment
-n> **⚠️ WICHTIGER HINWEIS ZUM SYSTEM-INSTALLER:**
+
+> **⚠️ WICHTIGER HINWEIS ZUM SYSTEM-INSTALLER:**
 > Der System-Installer (`waechter.installer`) verwendet eine strikte Allowlist (Whitelist) für Umgebungsvariablen (`ENV_KEYS`). Variablen, die nicht explizit in dieser Liste im Code hinterlegt sind, werden bei einem Lauf des Installers (z. B. bei einem Update) stillschweigend aus der `/etc/waechter/waechter.env` entfernt. Dies kann dazu führen, dass funktionierende Konfigurationen (wie z.B. Caching via Redis) plötzlich nicht mehr greifen und funktionierende Systeme beschädigt werden. Zudem werden lokale Dateien wie `waechter.yaml` und Keyword-CSVs nun aus `.example`-Vorlagen generiert, um ein Überschreiben lokaler Änderungen durch Updates zu verhindern. Bei Modifikationen am System muss stets sichergestellt werden, dass neue ENV-Variablen auch im Installer Code (`constants.py`, `models.py`, `env.py`) eingetragen werden!
 
 
@@ -114,7 +115,7 @@ n> **⚠️ WICHTIGER HINWEIS ZUM SYSTEM-INSTALLER:**
 
 ## 10. Bekannte Verbesserungspunkte (Auszug)
 
-- WHOIS‑Caching (siehe Pflichtenheft, Punkt „3. WHOIS‑Caching fehlt”): eTLD+1‑Schlüssel, TTL ~24h, In‑Memory oder Redis zur Vermeidung von Registrar‑IP‑Bans.
+- WHOIS‑Caching (siehe Pflichtenheft, Punkt „1. WHOIS‑Caching fehlt”): eTLD+1‑Schlüssel, TTL ~24h, In‑Memory oder Redis zur Vermeidung von Registrar‑IP‑Bans.
 - Metriken/Observability: Zähler für Provider‑Aufrufe, Fehlerraten, Redirect‑Verteilungen, durchschnittliche Aggregat‑Scores.
 - Circuit‑Breaker/Rate‑Limit für externe Dienste.
 - Screenshot‑Analyse: Der `ScreenshotProvider` erstellt derzeit nur das PNG‑Abbild. Eine nachgelagerte visuelle Auswertung (z. B. OCR via Tesseract, Phishing‑Klassifikator auf Bildebene) ist als optionale Erweiterungsstufe geplant.

@@ -5,7 +5,7 @@ Version: 1.1 • Datum: 2026-05-18
 ## 1. Zielsetzung und Scope
 
 - Ziel ist ein robuster, skalierbarer Worker („Wächter“), der verdächtige URLs aus einem Backend entgegennimmt, mit mehreren Prüfern (Providern) bewertet, die Ergebnisse zu einem Gesamtscore aggregiert und diesen inklusive Einzelwerte an das Backend zurückliefert.
-- Scope umfasst Worker‑Prozess, Provider‑Integrationen (Heuristik, Google Safe Browsing, ClamAV) und Konfigurations-/Betriebsartefakte. Das Backend selbst ist außerhalb des Scopes, wird jedoch über definierte interne Endpunkte angebunden.
+- Scope umfasst Worker‑Prozess, Provider‑Integrationen (Heuristik, Google Safe Browsing, ClamAV, PhishStats, Screenshot‑Rendering) und Konfigurations-/Betriebsartefakte. Das Backend selbst ist außerhalb des Scopes, wird jedoch über definierte interne Endpunkte angebunden.
 
 Nicht‑Ziele:
 - Vollständige Content‑Analyse jenseits der ClamAV‑Limits (z. B. große Dateien, komplexes JS‑Rendering).
@@ -38,7 +38,7 @@ F3. Provider‑Prüfungen
 - Google Safe Browsing: Bedrohungstreffer → hoher Score. Optionaler Redis-Cache zur Lastreduzierung implementiert.
 - ClamAV: Inhalte herunterladen (nur http/https), Redirect‑Limit, Größenlimit, Scan via `clamd`.
 - PhishStats: Abfrage der kostenfreien Community-Datenbank; hohe Treffsicherheit bei bekannten Kampagnen.
-- Screenshot‑Rendering: Jede neue URL wird in einem automatisierten Headless‑Browser geöffnet und als PNG‑Screenshot (1024 × 768 px) gerendert. Das Abbild steht nachgelagerten Analyse‑Schritten (z. B. visuelle Phishing‑Erkennung, OCR‑basierte Inhaltsauswertung) zur Verfügung.
+- Screenshot‑Rendering: Sofern aktiviert (Default `SCREENSHOT_ENABLED=true`, abschaltbar) wird jede neue URL in einem automatisierten Headless‑Browser geöffnet und als PNG‑Screenshot (1024 × 768 px) gerendert. Das Abbild steht nachgelagerten Analyse‑Schritten (z. B. visuelle Phishing‑Erkennung, OCR‑basierte Inhaltsauswertung) zur Verfügung.
 
 F4. Aggregation und Statusmapping
 - Aggregation per gewichtetem Bayesian noisy‑OR. Schwellen: `THRESHOLD_WARNING`, `THRESHOLD_BLOCK`.
@@ -77,7 +77,7 @@ N5. Observability
 - Externe Provider:
   - Google Safe Browsing: HTTP API mit API‑Key, Quotenbeachtung. Redis-Cache zur Lastreduzierung (optional).
   - ClamAV: lokaler Socket (`INSTREAM`), Rechte und Pfad müssen konfiguriert sein.
-- PhishStats: Offene REST-API (`https://api.phishstats.info/api/phishing`), kein API-Key erforderlich.
+- PhishStats: Offene REST-API (`https://api.phishstats.info/api/phishing`), kein API-Key erforderlich. Optionaler Redis-Cache zur Lastreduzierung.
   - WHOIS: Abfragen über `python-whois` gegen Registrare (Rate‑Limits/Bans beachten).
   - Headless‑Browser (Playwright): lokale Chromium‑Instanz; kein Netzwerkzugang zu internen Systemen; Timeout und Sandbox‑Einschränkungen beachten. Screenshots werden als PNG (1024 × 768 px) abgelegt; Pfad konfigurierbar (`SCREENSHOT_DIR`).
 
@@ -99,7 +99,7 @@ N5. Observability
 
 ## 9. Bekannte Lücken / Risiken / To‑dos
 
-3. WHOIS-Caching fehlt
+1. WHOIS-Caching fehlt
 
 Wenn Angreifer 50 verschiedene Phishing-Links generieren, die alle auf dieselbe neu registrierte Subdomain zeigen, feuert dein Wächter 50 separate WHOIS-Abfragen für dieselbe Domain ab. Das führt unweigerlich zum IP-Ban durch die WHOIS-Registrare.
 

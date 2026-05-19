@@ -20,7 +20,6 @@ Die Anforderungen aus dem überarbeiteten Pflichtenheft Version 1.1 wurden analy
 
 ## In Arbeit
 - Das Basis MVP (Phase 1-4) ist fertig.
-- [x] Screenshot‑Provider (ScreenshotProvider): URL in Headless‑Chromium öffnen, PNG‑Abbild (1024 × 768 px) unter SCREENSHOT_DIR/<link_id>.png speichern.
 
 ## Erledigt
 - **2026-05-18**: Screenshot‑Provider implementiert.
