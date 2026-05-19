@@ -67,9 +67,12 @@ class HeuristicProvider(ScanProvider):
         self.redir_to_ip = float(redirect_scores.get("to_ip", 0.7))
 
         # html
-        self.html_form_and_password = float(html_scores.get("form_and_password", 1.0))
-        self.html_form_and_email = float(html_scores.get("form_and_email", 0.7))
-        self.html_xhr_or_fetch = float(html_scores.get("xhr_or_fetch", 0.5))
+        self.html_form_and_password = float(html_scores.get("form_and_password", 0.8))
+        self.html_form_and_email = float(html_scores.get("form_and_email", 0.5))
+        self.html_xhr_or_fetch = float(html_scores.get("xhr_or_fetch", 0.3))
+        self.html_same_domain_multiplier = float(html_scores.get("same_domain_multiplier", 0.5))
+        self.html_cross_domain_multiplier = float(html_scores.get("cross_domain_multiplier", 1.0))
+        self.html_official_domain_multiplier = float(html_scores.get("official_domain_multiplier", 0.1))
 
         # lists / keyword files
         lists_section = cfg.get("lists", {}) or {}
@@ -152,7 +155,7 @@ class HeuristicProvider(ScanProvider):
                 self._add_signal(signals, "redirect_suspicious", redirect_score)
 
             # 10. HTML Content
-            html_score = await self._analyze_html_content(url, session)
+            html_score = await self._analyze_html_content(url, session, official_brand_domain=official_brand_domain, matched_brands=brand_ctx.get("brands", []))
             if official_brand_domain:
                 html_score *= 0.1
             if html_score > 0:
@@ -355,7 +358,7 @@ class HeuristicProvider(ScanProvider):
 
         return score
 
-    async def _analyze_html_content(self, url: str, session: aiohttp.ClientSession) -> float:
+    async def _analyze_html_content(self, url: str, session: aiohttp.ClientSession, official_brand_domain: bool = False, matched_brands: List[str] = None) -> float:
         score = 0.0
         timeout = aiohttp.ClientTimeout(total=5)
         try:
@@ -366,17 +369,59 @@ class HeuristicProvider(ScanProvider):
                 content = await resp.content.read(200 * 1024)
                 html = content.decode('utf-8', errors='ignore').lower()
 
-                has_form = "<form" in html
                 has_pwd = 'type="password"' in html
                 has_email_user = 'name="email"' in html or 'type="email"' in html or 'name="username"' in html
 
-                if has_form and has_pwd:
-                    score = max(score, self.html_form_and_password)
-                elif has_form and has_email_user:
-                    score = max(score, self.html_form_and_email)
+                # Identify forms and their actions
+                # Simple regex for forms: <form ... action="..." ...>
+                forms = re.findall(r'<form[^>]*>', html)
+
+                form_multiplier = 1.0
+                if forms:
+                    # Check the action of forms to see if they are internal or external.
+                    # Phishing forms often have no action (submits to self) or a cross-domain action.
+                    # Legitimate forms on official domains are usually fine.
+
+                    if official_brand_domain:
+                        form_multiplier = self.html_official_domain_multiplier
+                    else:
+                        parsed_url = urllib.parse.urlparse(url)
+                        current_hostname = (parsed_url.hostname or "").lower()
+                        current_domain = self._get_registrable_domain(current_hostname)
+
+                        cross_domain_action = False
+                        for form in forms:
+                            action_match = re.search(r'action=["\']([^"\']+)["\']', form)
+                            if action_match:
+                                action = action_match.group(1).strip()
+                                if action and not action.startswith(("/", "#", "javascript:")):
+                                    try:
+                                        action_url = urllib.parse.urljoin(url, action)
+                                        action_hostname = (urllib.parse.urlparse(action_url).hostname or "").lower()
+                                        action_domain = self._get_registrable_domain(action_hostname)
+
+                                        if action_domain and action_domain != current_domain:
+                                            # Cross-domain action is suspicious
+                                            cross_domain_action = True
+                                            break
+                                    except Exception:
+                                        pass
+
+                        if cross_domain_action:
+                            form_multiplier = self.html_cross_domain_multiplier
+                        else:
+                            # Same domain or no external action -> reduce score
+                            form_multiplier = self.html_same_domain_multiplier
+
+                if has_pwd:
+                    score = max(score, self.html_form_and_password * form_multiplier)
+                elif has_email_user:
+                    score = max(score, self.html_form_and_email * form_multiplier)
 
                 if "fetch(" in html or "xmlhttprequest" in html:
-                    score = max(score, self.html_xhr_or_fetch)
+                    # XHR/Fetch also affected by brand status, but less by form action context
+                    xhr_multiplier = self.html_official_domain_multiplier if official_brand_domain else 1.0
+                    score = max(score, self.html_xhr_or_fetch * xhr_multiplier)
 
         except (aiohttp.ClientError, asyncio.TimeoutError):
             pass

@@ -30,6 +30,9 @@ providers:
         form_and_password: 1.0
         form_and_email: 0.7
         xhr_or_fetch: 0.5
+        same_domain_multiplier: 0.5
+        cross_domain_multiplier: 1.0
+        official_domain_multiplier: 0.1
       parsing_failed: 0.8
     lists:
       suspicious_tlds: [".tk", ".ml", ".ga", ".cf"]
