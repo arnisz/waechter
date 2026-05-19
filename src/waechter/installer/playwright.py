@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import textwrap
 
 from waechter.installer.models import InstallerConfig
 from waechter.installer.runtime import CommandRunner
@@ -70,7 +69,7 @@ def install_runtime_dependencies(config: InstallerConfig, runner: CommandRunner)
     return True
 
 
-def ensure_screenshot_dir(config: InstallerConfig, runner: CommandRunner | None = None) -> bool:
+def ensure_screenshot_dir(config: InstallerConfig) -> bool:
     if not config.screenshot_enabled:
         return False
 
@@ -79,41 +78,7 @@ def ensure_screenshot_dir(config: InstallerConfig, runner: CommandRunner | None 
     path.mkdir(parents=True, exist_ok=True)
     os.chmod(path, 0o750)
     ensure_path_owner(path, config.app_user, config.app_user, recursive=False)
-
-    if runner is not None:
-        verify_screenshot_dir_access(config, runner)
-
     return not existed
-
-
-def verify_screenshot_dir_access(config: InstallerConfig, runner: CommandRunner) -> None:
-    path = config.resolved_screenshot_dir
-    check_script = textwrap.dedent(
-        """
-        import os
-        import pathlib
-        import sys
-
-        target = pathlib.Path(sys.argv[1])
-        target.mkdir(parents=True, exist_ok=True)
-        probe = target / ".waechter-write-test"
-        with open(probe, "wb") as handle:
-            handle.write(b"ok")
-        probe.unlink()
-        print(target)
-        """
-    ).strip()
-
-    try:
-        runner.run_as_user(config.app_user, ["python3", "-c", check_script, str(path)])
-    except Exception as exc:
-        hint = (
-            "Configured SCREENSHOT_DIR is under /home; ensure the parent directories are traversable by the 'waechter' user "
-            "and note that the installer now disables ProtectHome for such an explicit path."
-            if path.parts[:2] == ("/", "home")
-            else "Ensure the configured SCREENSHOT_DIR is writable by the 'waechter' user."
-        )
-        raise RuntimeError(f"SCREENSHOT_DIR '{path}' is not writable for user '{config.app_user}'. {hint}") from exc
 
 
 def install_playwright_browser(config: InstallerConfig, runner: CommandRunner) -> bool:
