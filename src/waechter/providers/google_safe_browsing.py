@@ -36,6 +36,12 @@ class GoogleSafeBrowsingProvider(QuotaAwareProvider):
         # enabled flag respects config but requires an API key
         self.enabled = as_bool(cfg.get("enabled", True)) and bool(self.api_key)
 
+        self._masked_key = (api_key[:4] + "…" + api_key[-4:]) if len(api_key) >= 8 else ("(not set)" if not api_key else "(too short)")
+        logger.info("google_safe_browsing_init", extra={"extra_data": {
+            "enabled": self.enabled,
+            "api_key_masked": self._masked_key,
+        }})
+
         # Optional Redis Cache
         self.redis_client = None
         self.redis_ttl = 21600
@@ -99,15 +105,32 @@ class GoogleSafeBrowsingProvider(QuotaAwareProvider):
 
         try:
             async with session.post(api_url, json=payload) as resp:
-                resp.raise_for_status()
+                status = resp.status
+                if status >= 400:
+                    body = await resp.text()
+                    logger.error("google_safe_browsing_http_error", extra={"extra_data": {
+                        "http_status": status,
+                        "api_key_masked": self._masked_key,
+                        "response_preview": body[:300],
+                    }})
+                    return {"raw_score": 0.0, "error": f"http_{status}"}
+
                 data = await resp.json()
-                
-                result = {"raw_score": 0.0}
-                if "matches" in data and len(data["matches"]) > 0:
-                    result = {
-                        "raw_score": 1.0,
-                        "raw_response": json.dumps(data)
-                    }
+
+                matches = data.get("matches") or []
+                if matches:
+                    result = {"raw_score": 1.0, "raw_response": json.dumps(data)}
+                    logger.warning("google_safe_browsing_threat_found", extra={"extra_data": {
+                        "url": url,
+                        "match_count": len(matches),
+                        "threat_types": list({m.get("threatType") for m in matches}),
+                    }})
+                else:
+                    result = {"raw_score": 0.0}
+                    logger.debug("google_safe_browsing_no_threat", extra={"extra_data": {
+                        "url": url,
+                        "cached": False,
+                    }})
 
                 # 3. Store in Redis Cache
                 if self.redis_client and cache_key:
@@ -119,5 +142,9 @@ class GoogleSafeBrowsingProvider(QuotaAwareProvider):
                 return result
 
         except Exception as e:
-            logger.error("GoogleSafeBrowsing request failed: %s", e)
+            logger.error("google_safe_browsing_request_failed", extra={"extra_data": {
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "api_key_masked": self._masked_key,
+            }})
             return {"raw_score": 0.0, "error": str(e)}
