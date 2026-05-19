@@ -220,12 +220,16 @@ class HeuristicProvider(ScanProvider):
 
     def _brand_context(self, hostname: str) -> Dict[str, Any]:
         hostname_lower = self._normalize_hostname(hostname)
+        # Each entry: (keyword, brand_name, score)
+        # brand_name may be empty for generic keywords (e.g. "login", "secure")
         matched_brands: List[Tuple[str, float]] = []
+        matched_brand_names: List[str] = []  # brand_name for official-domain lookup
 
-        for keyword, score in self.brand_keywords.items():
+        for keyword, (brand_name, score) in self.brand_keywords.items():
             keyword = keyword.lower().strip()
             if keyword and keyword in hostname_lower:
                 matched_brands.append((keyword, float(score)))
+                matched_brand_names.append(brand_name)
 
         if not matched_brands:
             return {
@@ -235,25 +239,37 @@ class HeuristicProvider(ScanProvider):
                 "brands": [],
             }
 
-        official_brands = {
-            brand
-            for brand, _ in matched_brands
-            if self._is_official_brand_domain(brand, hostname_lower)
-        }
-        max_impersonation_score = max(
-            (
-                score
-                for brand, score in matched_brands
-                if brand not in official_brands
-            ),
-            default=0.0,
-        )
+        # Check which brand names (not keywords) are official for this hostname.
+        # Generic keywords with no brand affiliation (brand_name == "") are never official.
+        official_brands: set = set()
+        for keyword, brand_name in zip([kw for kw, _ in matched_brands], matched_brand_names):
+            if brand_name and self._is_official_brand_domain(brand_name, hostname_lower):
+                official_brands.add(keyword)
+
+        # Bug fix #2: official flag depends ONLY on whether we found an official brand,
+        # NOT on whether generic keywords also have a non-zero score.
+        is_official = bool(official_brands)
+
+        # Bug fix #3: if the domain IS official, impersonation score must be 0 –
+        # generic keywords like "secure" or "login" in a subdomain of an official
+        # domain must not be counted as impersonation.
+        if is_official:
+            max_impersonation_score = 0.0
+        else:
+            max_impersonation_score = max(
+                (
+                    score
+                    for (keyword, score), brand_name in zip(matched_brands, matched_brand_names)
+                    if brand_name  # only count keywords that have a brand affiliation
+                ),
+                default=0.0,
+            )
 
         return {
             "matched": True,
-            "official": bool(official_brands) and max_impersonation_score == 0.0,
+            "official": is_official,
             "impersonation_score": max_impersonation_score,
-            "brands": [brand for brand, _ in matched_brands],
+            "brands": [kw for kw, _ in matched_brands],
         }
 
     def _check_path_heuristics(self, path: str) -> float:
