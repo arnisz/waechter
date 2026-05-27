@@ -69,9 +69,12 @@ class HeuristicProvider(ScanProvider):
         self.redir_to_ip = float(redirect_scores.get("to_ip", 0.7))
 
         # html
-        self.html_form_and_password = float(html_scores.get("form_and_password", 1.0))
-        self.html_form_and_email = float(html_scores.get("form_and_email", 0.7))
-        self.html_xhr_or_fetch = float(html_scores.get("xhr_or_fetch", 0.5))
+        self.html_form_and_password = float(html_scores.get("form_and_password", 0.8))
+        self.html_form_and_email = float(html_scores.get("form_and_email", 0.5))
+        self.html_xhr_or_fetch = float(html_scores.get("xhr_or_fetch", 0.3))
+        self.html_same_domain_multiplier = float(html_scores.get("same_domain_multiplier", 0.5))
+        self.html_cross_domain_multiplier = float(html_scores.get("cross_domain_multiplier", 1.0))
+        self.html_official_domain_multiplier = float(html_scores.get("official_domain_multiplier", 0.1))
 
         # lists / keyword files
         lists_section = cfg.get("lists", {}) or {}
@@ -88,7 +91,7 @@ class HeuristicProvider(ScanProvider):
         self.path_keywords = set(load_keywords_list(path_fp))
         self.url_keywords = set(load_keywords_list(url_fp))
 
-    async def scan(self, url: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
+    async def scan(self, url: str, session: aiohttp.ClientSession, link_id: str | None = None) -> Dict[str, Any]:
         signals = {}
 
         try:
@@ -129,6 +132,13 @@ class HeuristicProvider(ScanProvider):
             if path_score > 0:
                 self._add_signal(signals, "suspicious_path", path_score)
 
+            # 5b. Subdomain Heuristics
+            subdomain_score = self._check_subdomain_heuristics(hostname)
+            if official_brand_domain:
+                subdomain_score *= 0.1
+            if subdomain_score > 0:
+                self._add_signal(signals, "suspicious_subdomain", subdomain_score)
+
             # 6. AWS Lambda Phishing
             if re.search(r'\.lambda-url\..*\.on\.aws$', hostname, re.IGNORECASE):
                 self._add_signal(signals, "aws_lambda_phishing", self.sc_aws_lambda)
@@ -154,7 +164,7 @@ class HeuristicProvider(ScanProvider):
                 self._add_signal(signals, "redirect_suspicious", redirect_score)
 
             # 10. HTML Content
-            html_score = await self._analyze_html_content(url, session)
+            html_score = await self._analyze_html_content(url, session, official_brand_domain=official_brand_domain, matched_brands=brand_ctx.get("brands", []))
             if official_brand_domain:
                 html_score *= 0.1
             if html_score > 0:
@@ -212,12 +222,16 @@ class HeuristicProvider(ScanProvider):
 
     def _brand_context(self, hostname: str) -> Dict[str, Any]:
         hostname_lower = self._normalize_hostname(hostname)
+        # Each entry: (keyword, brand_name, score)
+        # brand_name may be empty for generic keywords (e.g. "login", "secure")
         matched_brands: List[Tuple[str, float]] = []
+        matched_brand_names: List[str] = []  # brand_name for official-domain lookup
 
-        for keyword, score in self.brand_keywords.items():
+        for keyword, (brand_name, score) in self.brand_keywords.items():
             keyword = keyword.lower().strip()
             if keyword and keyword in hostname_lower:
                 matched_brands.append((keyword, float(score)))
+                matched_brand_names.append(brand_name)
 
         if not matched_brands:
             return {
@@ -227,25 +241,37 @@ class HeuristicProvider(ScanProvider):
                 "brands": [],
             }
 
-        official_brands = {
-            brand
-            for brand, _ in matched_brands
-            if self._is_official_brand_domain(brand, hostname_lower)
-        }
-        max_impersonation_score = max(
-            (
-                score
-                for brand, score in matched_brands
-                if brand not in official_brands
-            ),
-            default=0.0,
-        )
+        # Check which brand names (not keywords) are official for this hostname.
+        # Generic keywords with no brand affiliation (brand_name == "") are never official.
+        official_brands: set = set()
+        for keyword, brand_name in zip([kw for kw, _ in matched_brands], matched_brand_names):
+            if brand_name and self._is_official_brand_domain(brand_name, hostname_lower):
+                official_brands.add(keyword)
+
+        # Bug fix #2: official flag depends ONLY on whether we found an official brand,
+        # NOT on whether generic keywords also have a non-zero score.
+        is_official = bool(official_brands)
+
+        # Bug fix #3: if the domain IS official, impersonation score must be 0 –
+        # generic keywords like "secure" or "login" in a subdomain of an official
+        # domain must not be counted as impersonation.
+        if is_official:
+            max_impersonation_score = 0.0
+        else:
+            max_impersonation_score = max(
+                (
+                    score
+                    for (keyword, score), brand_name in zip(matched_brands, matched_brand_names)
+                    if brand_name  # only count keywords that have a brand affiliation
+                ),
+                default=0.0,
+            )
 
         return {
             "matched": True,
-            "official": bool(official_brands) and max_impersonation_score == 0.0,
+            "official": is_official,
             "impersonation_score": max_impersonation_score,
-            "brands": [brand for brand, _ in matched_brands],
+            "brands": [kw for kw, _ in matched_brands],
         }
 
     def _check_path_heuristics(self, path: str) -> float:
@@ -359,7 +385,7 @@ class HeuristicProvider(ScanProvider):
 
         return score
 
-    async def _analyze_html_content(self, url: str, session: aiohttp.ClientSession) -> float:
+    async def _analyze_html_content(self, url: str, session: aiohttp.ClientSession, official_brand_domain: bool = False, matched_brands: List[str] = None) -> float:
         score = 0.0
         timeout = aiohttp.ClientTimeout(total=5)
         try:
@@ -370,17 +396,59 @@ class HeuristicProvider(ScanProvider):
                 content = await resp.content.read(200 * 1024)
                 html = content.decode('utf-8', errors='ignore').lower()
 
-                has_form = "<form" in html
                 has_pwd = 'type="password"' in html
                 has_email_user = 'name="email"' in html or 'type="email"' in html or 'name="username"' in html
 
-                if has_form and has_pwd:
-                    score = max(score, self.html_form_and_password)
-                elif has_form and has_email_user:
-                    score = max(score, self.html_form_and_email)
+                # Identify forms and their actions
+                # Simple regex for forms: <form ... action="..." ...>
+                forms = re.findall(r'<form[^>]*>', html)
+
+                form_multiplier = 1.0
+                if forms:
+                    # Check the action of forms to see if they are internal or external.
+                    # Phishing forms often have no action (submits to self) or a cross-domain action.
+                    # Legitimate forms on official domains are usually fine.
+
+                    if official_brand_domain:
+                        form_multiplier = self.html_official_domain_multiplier
+                    else:
+                        parsed_url = urllib.parse.urlparse(url)
+                        current_hostname = (parsed_url.hostname or "").lower()
+                        current_domain = self._get_registrable_domain(current_hostname)
+
+                        cross_domain_action = False
+                        for form in forms:
+                            action_match = re.search(r'action=["\']([^"\']+)["\']', form)
+                            if action_match:
+                                action = action_match.group(1).strip()
+                                if action and not action.startswith(("/", "#", "javascript:")):
+                                    try:
+                                        action_url = urllib.parse.urljoin(url, action)
+                                        action_hostname = (urllib.parse.urlparse(action_url).hostname or "").lower()
+                                        action_domain = self._get_registrable_domain(action_hostname)
+
+                                        if action_domain and action_domain != current_domain:
+                                            # Cross-domain action is suspicious
+                                            cross_domain_action = True
+                                            break
+                                    except Exception:
+                                        pass
+
+                        if cross_domain_action:
+                            form_multiplier = self.html_cross_domain_multiplier
+                        else:
+                            # Same domain or no external action -> reduce score
+                            form_multiplier = self.html_same_domain_multiplier
+
+                if has_pwd:
+                    score = max(score, self.html_form_and_password * form_multiplier)
+                elif has_email_user:
+                    score = max(score, self.html_form_and_email * form_multiplier)
 
                 if "fetch(" in html or "xmlhttprequest" in html:
-                    score = max(score, self.html_xhr_or_fetch)
+                    # XHR/Fetch also affected by brand status, but less by form action context
+                    xhr_multiplier = self.html_official_domain_multiplier if official_brand_domain else 1.0
+                    score = max(score, self.html_xhr_or_fetch * xhr_multiplier)
 
         except (aiohttp.ClientError, asyncio.TimeoutError):
             pass
@@ -392,3 +460,20 @@ class HeuristicProvider(ScanProvider):
             if self._is_official_brand_domain(brand, hostname):
                 return True
         return False
+
+    def _check_subdomain_heuristics(self, hostname: str) -> float:
+        ext = _TLD_EXTRACT(hostname)
+        subdomain = ext.subdomain
+        if not subdomain:
+            return 0.0
+            
+        score = 0.0
+        if len(subdomain) > 10:
+            score = 0.2
+            # Check for special characters (not letters or digits)
+            # We use isalnum() but we must consider that a subdomain can have dots 
+            # if it has multiple levels. However, tldextract gives the full subdomain part.
+            # If the user says "special characters", typically non-alphanumeric.
+            if not subdomain.replace(".", "").isalnum():
+                score = 0.4
+        return score

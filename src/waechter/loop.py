@@ -2,7 +2,7 @@ import os
 import sys
 import asyncio
 import aiohttp
-from typing import List
+from typing import Any, List, cast
 from waechter.types import PendingLink, ProviderScanPayload, ScanResultPayload
 from waechter.api import WorkerApi
 from waechter.providers import ScanProvider, QuotaExhaustedError
@@ -20,7 +20,8 @@ wait_ms = MIN_WAIT_MS
 sem = asyncio.Semaphore(SCAN_CONCURRENCY)
 
 async def scan_single_link(link: PendingLink, providers: List[ScanProvider], api: WorkerApi, session: aiohttp.ClientSession) -> None:
-    scans_payload: List[ProviderScanPayload] = []
+    scans_payload: List[dict[str, Any]] = []
+    aggregation_inputs: List[dict[str, Any]] = []
 
     for provider in providers:
         if not provider.enabled:
@@ -35,7 +36,7 @@ async def scan_single_link(link: PendingLink, providers: List[ScanProvider], api
                 "link_id": link["id"],
                 "url": link["target_url"],
             }})
-            res = await provider.scan(link["target_url"], session)
+            res = await provider.scan(link["target_url"], session, link_id=link["id"])
             raw_response = res.get("raw_response")
             logger.debug("provider_scan_result", extra={"extra_data": {
                 "provider": provider.name,
@@ -45,32 +46,43 @@ async def scan_single_link(link: PendingLink, providers: List[ScanProvider], api
                 "raw_response_preview": str(raw_response)[:300] if raw_response is not None else None,
                 "weight": provider.weight,
             }})
-            scans_payload.append({
+            scan_raw_score = float(res["raw_score"])
+            scan_raw_response = str(raw_response) if scan_raw_score >= 0.3 and raw_response is not None else None
+            scan_payload_entry = {
                 "provider": provider.name,
-                "raw_score": res["raw_score"],
-                "raw_response": res.get("raw_response") if res["raw_score"] >= 0.3 else None,
-                "weight": provider.weight # passed for aggregation only, not part of payload schema
+                "raw_score": scan_raw_score,
+                "raw_response": scan_raw_response,
+            }
+            scans_payload.append(scan_payload_entry)
+            aggregation_inputs.append({
+                "provider": provider.name,
+                "raw_score": scan_raw_score,
+                "raw_response": scan_raw_response,
+                "weight": provider.weight,
             })
         except QuotaExhaustedError as e:
             logger.warning(f"Quota exhausted: {e}", extra={"extra_data": {"provider": provider.name}})
         except Exception as e:
-            logger.error(f"Provider error: {str(e)}", extra={"extra_data": {"provider": provider.name, "link_id": link["id"]}})
+            logger.error("provider_scan_error", extra={"extra_data": {
+                "provider": provider.name,
+                "link_id": link["id"],
+                "url": link["target_url"],
+                "error_type": type(e).__name__,
+                "error": str(e),
+            }})
 
     if not scans_payload:
         logger.error("All providers failed or disabled", extra={"extra_data": {"link_id": link["id"]}})
         return
 
-    agg_score = aggregate_score(scans_payload)
+    agg_score = aggregate_score(aggregation_inputs)
     status = map_status(agg_score)
 
-    # Clean up weights before sending
-    for s in scans_payload:
-        s.pop("weight", None)
 
     payload: ScanResultPayload = {
         "aggregate_score": agg_score,
         "status": status,
-        "scans": scans_payload
+        "scans": cast(List[ProviderScanPayload], scans_payload)
     }
     logger.debug("scan_payload_ready", extra={"extra_data": {
         "link_id": link["id"],
@@ -113,6 +125,7 @@ async def pull_loop(providers: List[ScanProvider], api: WorkerApi):
         except Exception as e:
             logger.error(f"Initialization failed: {e}")
             if "401" in str(e):
+                logger.error("Authentication failed (401). Check that WAECHTER_TOKEN is correct and WORKER_BASE_URL uses https://.")
                 sys.exit(1)
             # Sleep and let the loop handle it
 
@@ -134,6 +147,7 @@ async def pull_loop(providers: List[ScanProvider], api: WorkerApi):
             except Exception as e:
                 logger.error(f"Loop error: {e}")
                 if "401" in str(e):
+                    logger.error("Authentication failed (401). Check that WAECHTER_TOKEN is correct and WORKER_BASE_URL uses https://.")
                     sys.exit(1)
                 await asyncio.sleep(wait_ms / 1000.0)
 

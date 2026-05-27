@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Tuple
 
 try:
     import yaml  # type: ignore
@@ -134,24 +134,37 @@ def _iter_rows(file_path: Path) -> Iterable[Dict[str, str]]:
 
 
 @lru_cache(maxsize=64)
-def load_brand_keywords(file_path: str | Path) -> Dict[str, float]:
+def load_brand_keywords(file_path: str | Path) -> Dict[str, Tuple[str, float]]:
+    """Load brand keywords CSV.
+
+    Returns a mapping of ``keyword -> (brand_name, score)``.  The *brand_name*
+    is taken from the optional ``brand`` column; if absent or empty it defaults
+    to the keyword itself.  Generic/non-brand keywords (e.g. "login", "secure")
+    should leave the ``brand`` column empty so that no official-domain lookup is
+    attempted for them.
+    """
     p = _resolve_path(file_path)
     if not p.exists():
         logger.warning("Brand keywords CSV not found: %s", str(p))
         return {}
-    kws: Dict[str, float] = {}
+    kws: Dict[str, Tuple[str, float]] = {}
     try:
         for row in _iter_rows(p):
-            key = (row.get('keyword') or row.get('brand') or row.get('value') or '').strip().lower()
+            key = (row.get('keyword') or row.get('value') or '').strip().lower()
             if not key:
                 continue
+            # brand column is optional; empty means "no brand affiliation"
+            brand_name = (row.get('brand') or '').strip().lower()
             try:
                 sc = float(row.get('score') or row.get('weight') or '0')
             except Exception:
                 sc = 0.0
             if sc <= 0:
                 continue
-            kws[key] = max(kws.get(key, 0.0), sc)
+            # Keep the entry with the highest score if duplicates exist
+            existing = kws.get(key)
+            if existing is None or sc > existing[1]:
+                kws[key] = (brand_name, sc)
     except Exception as e:  # pragma: no cover - defensive
         logger.warning("Failed to parse brand keywords %s: %s", str(p), e)
     return kws

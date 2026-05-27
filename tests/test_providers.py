@@ -1,12 +1,16 @@
+from datetime import datetime
 import pytest
 import aiohttp
-from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider, QuotaExhaustedError
+from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider
 from aioresponses import aioresponses
-import json
+from unittest.mock import patch
+
+import waechter.providers.clamav as clamav_module
 
 
 async def _no_whois_score(hostname):
     return 0.0
+
 
 @pytest.mark.asyncio
 async def test_heuristic_provider():
@@ -24,6 +28,7 @@ async def test_heuristic_provider():
             res2 = await provider.scan("http://example.tk", session)
             assert res2["raw_score"] >= 0.5
 
+
 @pytest.mark.asyncio
 async def test_heuristic_provider_scores_long_redirect_chain():
     provider = HeuristicProvider()
@@ -37,6 +42,7 @@ async def test_heuristic_provider_scores_long_redirect_chain():
 
             res = await provider.scan("http://example.com/start", session)
             assert res["raw_score"] >= 0.2
+
 
 @pytest.mark.asyncio
 async def test_heuristic_provider_scores_redirect_to_raw_ip():
@@ -136,6 +142,7 @@ async def test_heuristic_provider_scores_punycode_hostname(monkeypatch):
 
     assert res["signals"]["punycode_hostname"] == 0.5
 
+
 @pytest.mark.asyncio
 async def test_heuristic_provider_scores_whois_age_less_than_3_days(monkeypatch):
     provider = HeuristicProvider()
@@ -177,6 +184,7 @@ async def test_gsb_provider():
             res2 = await provider.scan("http://good-url.com", session)
             assert res2["raw_score"] == 0.0
 
+
 @pytest.mark.asyncio
 async def test_clamav_provider_scores_found(monkeypatch):
     provider = ClamAVProvider()
@@ -194,6 +202,7 @@ async def test_clamav_provider_scores_found(monkeypatch):
             res = await provider.scan("http://example.com/file", session)
             assert res["raw_score"] == 1.0
             assert "FOUND" in res["raw_response"]
+
 
 @pytest.mark.asyncio
 async def test_clamav_provider_scores_too_many_redirects_without_scanning(monkeypatch):
@@ -219,4 +228,163 @@ async def test_clamav_provider_scores_too_many_redirects_without_scanning(monkey
             res = await provider.scan("http://example.com/start", session)
             assert res["raw_score"] == 0.9
             assert "more_than_7_redirects" in res["raw_response"]
+
+
+@pytest.mark.asyncio
+async def test_clamav_provider_logs_structured_http_error_for_blocked_fetch():
+    provider = ClamAVProvider()
+
+    async with aiohttp.ClientSession() as session:
+        with aioresponses() as m:
+            m.get(
+                "https://www.digikey.de/",
+                status=403,
+                body="Access Denied - automated access blocked",
+                headers={"Server": "AkamaiGHost", "Content-Type": "text/html"},
+            )
+
+            with patch.object(clamav_module.logger, "error") as log_error:
+                with pytest.raises(clamav_module.ClamAVDownloadError) as exc_info:
+                    await provider.scan("https://www.digikey.de/", session, link_id="link-123")
+
+    message = str(exc_info.value)
+    assert "http_status=403" in message
+    assert "block_hint=possible_bot_protection_or_access_denied" in message
+
+    log_error.assert_called_once()
+    _, kwargs = log_error.call_args
+    extra_data = kwargs["extra"]["extra_data"]
+    assert extra_data["link_id"] == "link-123"
+    assert extra_data["http_status"] == 403
+    assert extra_data["final_url"] == "https://www.digikey.de/"
+    assert extra_data["server"] == "AkamaiGHost"
+    assert extra_data["block_hint"] == "possible_bot_protection_or_access_denied"
+    assert "Access Denied" in extra_data["response_preview"]
+
+
+@pytest.mark.asyncio
+async def test_heuristic_provider_scores_suspicious_godaddy_subdomain(monkeypatch):
+    """
+    Test that a suspicious subdomain on a known site-builder (like godaddysites.com)
+    should NOT be scored as 0, even if the base domain is old.
+
+    Reproducer for reported issue: https://site-v4y2ws0vq.godaddysites.com/
+    Currently this test FAILS as expected.
+    """
+    provider = HeuristicProvider()
+
+    # Mock WHOIS to return an OLD creation date (2013) to reflect real world godaddysites.com
+    async def mock_whois_old(hostname):
+        return 0.0
+
+    monkeypatch.setattr(provider, "_check_whois_age", mock_whois_old)
+
+    url = "https://site-v4y2ws0vq.godaddysites.com/"
+
+    async with aiohttp.ClientSession() as session:
+        with aioresponses() as m:
+            m.get(url, status=200, body="<html></html>")
+            m.head(url, status=200)
+
+            res = await provider.scan(url, session)
+
+    # Expected: score > 0 because site-v4y2ws0vq is a suspicious random-looking subdomain
+    assert res["raw_score"] > 0
+
+
+# ---------------------------------------------------------------------------
+# Bug-Regression: brand_domains.csv / keyword→brand mapping
+# ---------------------------------------------------------------------------
+
+def test_brand_context_gmail_is_official():
+    """gmail.com muss als offiziell erkannt werden (keyword 'gmail' → brand 'google')."""
+    provider = HeuristicProvider()
+    ctx = provider._brand_context("gmail.com")
+    assert ctx["official"] is True
+    assert ctx["impersonation_score"] == 0.0
+
+
+def test_brand_context_secure_paypal_subdomain_is_official():
+    """secure.paypal.com ist eine legitime PayPal-Subdomain – official=True, kein Impersonation-Score."""
+    provider = HeuristicProvider()
+    ctx = provider._brand_context("secure.paypal.com")
+    assert ctx["official"] is True
+    assert ctx["impersonation_score"] == 0.0
+
+
+def test_brand_context_paypal_impersonation():
+    """paypal-login.evil.com ist Impersonation – official=False, hoher Score."""
+    provider = HeuristicProvider()
+    ctx = provider._brand_context("paypal-login.evil.com")
+    assert ctx["official"] is False
+    assert ctx["impersonation_score"] >= 0.8
+
+
+def test_brand_context_netflix_is_official():
+    """netflix.com war früher nicht in brand_domains.csv und wurde fälschlicherweise als Impersonation gewertet."""
+    provider = HeuristicProvider()
+    ctx = provider._brand_context("netflix.com")
+    assert ctx["official"] is True
+    assert ctx["impersonation_score"] == 0.0
+
+
+def test_brand_context_disney_is_official():
+    """disney.com muss als offiziell erkannt werden."""
+    provider = HeuristicProvider()
+    ctx = provider._brand_context("disney.com")
+    assert ctx["official"] is True
+    assert ctx["impersonation_score"] == 0.0
+
+
+def test_brand_context_evil_netflix_flagged():
+    """evil-netflix-login.tk ist eindeutig Impersonation."""
+    provider = HeuristicProvider()
+    ctx = provider._brand_context("evil-netflix-login.tk")
+    assert ctx["official"] is False
+    assert ctx["impersonation_score"] >= 0.8
+
+
+@pytest.mark.asyncio
+async def test_heuristic_provider_gmail_low_risk(monkeypatch):
+    """gmail.com darf keinen brand_impersonation-Signal erhalten."""
+    provider = HeuristicProvider()
+    monkeypatch.setattr(provider, "_check_whois_age", _no_whois_score)
+
+    url = "https://mail.google.com/mail/"
+    async with aiohttp.ClientSession() as session:
+        with aioresponses() as m:
+            m.head(url, status=200)
+            m.get(url, status=200, headers={"Content-Type": "text/html"},
+                  body='<form><input type="email"></form>')
+            res = await provider.scan(url, session)
+
+    assert "brand_impersonation" not in res["signals"], (
+        f"gmail.com should NOT be flagged as impersonation, signals={res['signals']}"
+    )
+    """
+    Test that a suspicious subdomain on a known site-builder (like godaddysites.com)
+    should NOT be scored as 0, even if the base domain is old.
+
+    Reproducer for reported issue: https://site-v4y2ws0vq.godaddysites.com/
+    Currently this test FAILS as expected.
+    """
+    provider = HeuristicProvider()
+
+    # Mock WHOIS to return an OLD creation date (2013) to reflect real world godaddysites.com
+    async def mock_whois_old(hostname):
+        return 0.0
+
+    monkeypatch.setattr(provider, "_check_whois_age", mock_whois_old)
+
+    url = "https://site-v4y2ws0vq.godaddysites.com/"
+
+    async with aiohttp.ClientSession() as session:
+        with aioresponses() as m:
+            m.get(url, status=200, body="<html></html>")
+            m.head(url, status=200)
+
+            res = await provider.scan(url, session)
+
+    # Expected: score > 0 because site-v4y2ws0vq is a suspicious random-looking subdomain
+    assert res["raw_score"] > 0
 

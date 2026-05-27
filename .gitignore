@@ -57,3 +57,7 @@ logs/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Active configuration and data (do not commit)
+config/waechter.yaml
+data/keywords/heuristic/*.csv
