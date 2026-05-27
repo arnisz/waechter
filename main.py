@@ -5,7 +5,14 @@ from dotenv import load_dotenv
 
 from waechter.api import WorkerApi
 from waechter import __version__
-from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider, DnsblProvider
+from waechter.providers import (
+    HeuristicProvider,
+    GoogleSafeBrowsingProvider,
+    ClamAVProvider,
+    DnsblProvider,
+    PhishStatsProvider,
+    ScreenshotProvider,
+)
 from waechter.loop import pull_loop
 from waechter.logger import get_logger
 from waechter.config_loader import as_bool, provider_cfg
@@ -25,7 +32,7 @@ async def main():
 
     providers = [HeuristicProvider()]
 
-    # ClamAV enabled: ENV override takes precedence, else YAML config
+    # ClamAV
     clamav_cfg = provider_cfg("clamav")
     env_flag = os.environ.get("CLAMAV_ENABLED")
     if env_flag is not None:
@@ -37,12 +44,13 @@ async def main():
         clamav_socket_path = os.environ.get("CLAMAV_SOCKET_PATH", (clamav_cfg.get("connection", {}) or {}).get("socket_path", "/var/run/clamav/clamd.ctl"))
         providers.append(ClamAVProvider(socket_path=clamav_socket_path, enabled=True))
 
+    # Google Safe Browsing
     gsb_key = os.environ.get("GOOGLE_SAFE_BROWSING_API_KEY", "")
     gsb_cfg = provider_cfg("google_safe_browsing")
     if gsb_key and as_bool(gsb_cfg.get("enabled", True)):
         providers.append(GoogleSafeBrowsingProvider(gsb_key))
 
-    # DNSBL enabled
+    # DNSBL
     dnsbl_cfg = provider_cfg("dnsbl")
     dnsbl_env = os.environ.get("DNSBL_ENABLED")
     if dnsbl_env is not None:
@@ -56,6 +64,28 @@ async def main():
             redis_password=os.environ.get("DNSBL_REDIS_PASSWORD"),
             enabled=True
         ))
+
+    # PhishStats
+    phishstats_cfg = provider_cfg("phishstats")
+    phishstats_env = os.environ.get("PHISHSTATS_ENABLED")
+    if phishstats_env is not None:
+        phishstats_enabled = phishstats_env.lower() in ("1", "true", "yes")
+    else:
+        phishstats_enabled = as_bool(phishstats_cfg.get("enabled", True), default=True)
+
+    if phishstats_enabled:
+        providers.append(PhishStatsProvider())
+
+    # Screenshot
+    screenshot_cfg = provider_cfg("screenshot")
+    screenshot_env = os.environ.get("SCREENSHOT_ENABLED")
+    if screenshot_env is not None:
+        screenshot_enabled = screenshot_env.lower() in ("1", "true", "yes")
+    else:
+        screenshot_enabled = as_bool(screenshot_cfg.get("enabled", True), default=True)
+
+    if screenshot_enabled:
+        providers.append(ScreenshotProvider())
 
     logger.info("Starting Waechter daemon", extra={"extra_data": {
         "version": __version__,

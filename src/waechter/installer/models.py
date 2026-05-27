@@ -27,6 +27,10 @@ class InstallerConfig:
     redis_enabled: bool
     redis_url: str
     redis_ttl_sec: str
+    dnsbl_enabled: bool = False
+    dnsbl_redis_url: str = ""
+    dnsbl_redis_password: str = ""
+    phishstats_enabled: bool = True
     repo_updated: bool = False
     mode: str = "auto"
 

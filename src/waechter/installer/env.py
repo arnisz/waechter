@@ -77,6 +77,10 @@ def build_config(mode: str = "auto", environ: dict[str, str] | None = None) -> I
         redis_enabled=as_bool(effective.get("REDIS_ENABLED", "true")),
         redis_url=effective.get("REDIS_URL", "redis://localhost:6379/0"),
         redis_ttl_sec=effective.get("REDIS_TTL_SEC", "21600"),
+        dnsbl_enabled=as_bool(effective.get("DNSBL_ENABLED", "false")),
+        dnsbl_redis_url=effective.get("DNSBL_REDIS_URL", "redis://localhost:6379/0"),
+        dnsbl_redis_password=effective.get("DNSBL_REDIS_PASSWORD", ""),
+        phishstats_enabled=as_bool(effective.get("PHISHSTATS_ENABLED", "true"), default=True),
         repo_updated=as_bool(env.get("WAECHTER_BOOTSTRAP_REPO_UPDATED"), default=False),
         mode=mode,
     )
@@ -108,6 +112,10 @@ def render_env_file(config: InstallerConfig) -> str:
         "REDIS_ENABLED": "true" if config.redis_enabled else "false",
         "REDIS_URL": config.redis_url,
         "REDIS_TTL_SEC": config.redis_ttl_sec,
+        "DNSBL_ENABLED": "true" if config.dnsbl_enabled else "false",
+        "DNSBL_REDIS_URL": config.dnsbl_redis_url,
+        "DNSBL_REDIS_PASSWORD": config.dnsbl_redis_password,
+        "PHISHSTATS_ENABLED": "true" if config.phishstats_enabled else "false",
     }
     return "".join(f"{key}={value}\n" for key, value in ordered_values.items())
 

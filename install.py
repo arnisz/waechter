@@ -432,6 +432,17 @@ def configure_env_interactively() -> dict[str, str]:
         default_socket = os.environ.get("CLAMAV_SOCKET_PATH", "/var/run/clamav/clamd.ctl")
         clamav_socket = prompt("CLAMAV_SOCKET_PATH (UNIX Socket)", default=default_socket)
 
+    # DNSBL
+    dnsbl_enabled = prompt_bool("DNSBL Provider aktivieren?", default=False)
+    dnsbl_redis_url = ""
+    dnsbl_redis_password = ""
+    if dnsbl_enabled:
+        dnsbl_redis_url = prompt("DNSBL_REDIS_URL", default="redis://localhost:6379/0")
+        dnsbl_redis_password = prompt("DNSBL_REDIS_PASSWORD (optional)", default="")
+
+    # PhishStats
+    phishstats_enabled = prompt_bool("PhishStats Provider aktivieren?", default=True)
+
     # Screenshot / Playwright
     screenshot_enabled = prompt_bool(
         "Screenshot-Provider aktivieren?",
@@ -465,6 +476,10 @@ def configure_env_interactively() -> dict[str, str]:
         "THRESHOLD_WARNING": th_warn,
         "THRESHOLD_BLOCK": th_block,
         "CLAMAV_ENABLED": "true" if clamav_enabled else "false",
+        "DNSBL_ENABLED": "true" if dnsbl_enabled else "false",
+        "DNSBL_REDIS_URL": dnsbl_redis_url,
+        "DNSBL_REDIS_PASSWORD": dnsbl_redis_password,
+        "PHISHSTATS_ENABLED": "true" if phishstats_enabled else "false",
         "SCREENSHOT_ENABLED": "true" if screenshot_enabled else "false",
         "SCREENSHOT_DIR": screenshot_dir,
         "SCREENSHOT_TIMEOUT_MS": screenshot_timeout_ms,

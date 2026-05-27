@@ -37,6 +37,10 @@ ENV_KEYS = [
     "REDIS_ENABLED",
     "REDIS_URL",
     "REDIS_TTL_SEC",
+    "DNSBL_ENABLED",
+    "DNSBL_REDIS_URL",
+    "DNSBL_REDIS_PASSWORD",
+    "PHISHSTATS_ENABLED",
 ]
 
 DEFAULT_ENV_VALUES = {
@@ -59,5 +63,9 @@ DEFAULT_ENV_VALUES = {
     "REDIS_ENABLED": "true",
     "REDIS_URL": "redis://localhost:6379/0",
     "REDIS_TTL_SEC": "21600",
+    "DNSBL_ENABLED": "false",
+    "DNSBL_REDIS_URL": "redis://localhost:6379/0",
+    "DNSBL_REDIS_PASSWORD": "",
+    "PHISHSTATS_ENABLED": "true",
 }
 
