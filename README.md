@@ -311,10 +311,15 @@ Always enabled. Scores simple URL risk signals:
 - long redirect chains,
 - redirects to raw IP addresses.
 
-Brand checks use two CSV files:
+Heuristic data is loaded from CSV files:
 
 - `data/keywords/heuristic/brand_keywords.csv` lists brand keywords and their impersonation score.
 - `data/keywords/heuristic/brand_domains.csv` lists official domains for each brand.
+- `data/keywords/heuristic/path_keywords.csv` and `data/keywords/heuristic/url_keywords.csv` define generic keyword signals.
+- `data/keywords/heuristic/suspicious_tlds.csv` defines suspicious TLD suffixes.
+- `data/keywords/heuristic/trusted_domains.csv` defines global allowlisted domains (score short-circuit to `0.0`).
+- `data/keywords/heuristic/identity_providers.csv` defines tolerated IdP targets for cross-domain form actions.
+- `data/keywords/heuristic/hosting_platforms.csv` defines domains where WHOIS age checks are skipped.
 
 `brand_domains.csv` has this format:
 

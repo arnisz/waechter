@@ -88,6 +88,10 @@ refresh_repository() {
     "data/keywords/heuristic/brand_domains.csv"
     "data/keywords/heuristic/path_keywords.csv"
     "data/keywords/heuristic/url_keywords.csv"
+    "data/keywords/heuristic/suspicious_tlds.csv"
+    "data/keywords/heuristic/trusted_domains.csv"
+    "data/keywords/heuristic/identity_providers.csv"
+    "data/keywords/heuristic/hosting_platforms.csv"
   )
   for f in "${protected_files[@]}"; do
     if [[ -f "${APP_DIR}/$f" ]]; then

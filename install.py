@@ -44,6 +44,9 @@ DEFAULT_CONFIG_YAML = dedent(
             high: 5
             max: 10
           long_url_chars: 500
+          subdomain:
+            long_chars: 25
+            deep_levels: 4
         scores:
           ip_address: 0.6
           suspicious_tld: 0.5
@@ -51,6 +54,8 @@ DEFAULT_CONFIG_YAML = dedent(
           aws_lambda_phishing: 0.8
           url_keywords: 0.4
           path_keywords: 0.3
+          userinfo_present: 0.8
+          punycode_hostname: 0.5
           whois:
             missing_creation: 0.5
             age_lt_3d: 1.5
@@ -64,17 +69,35 @@ DEFAULT_CONFIG_YAML = dedent(
             domain_mismatch: 0.5
             to_ip: 0.7
           html:
-            form_and_password: 1.0
-            form_and_email: 0.7
-            xhr_or_fetch: 0.5
+            form_and_password: 0.8
+            form_and_email: 0.5
+            xhr_or_fetch: 0.3
+            same_domain_multiplier: 0.5
+            cross_domain_multiplier: 1.0
+            idp_multiplier: 0.15
+            official_domain_multiplier: 0.1
+          subdomain:
+            long: 0.15
+            random: 0.4
+            special_chars: 0.4
           parsing_failed: 0.8
-        lists:
-          suspicious_tlds: [".tk", ".ml", ".ga", ".cf"]
+        official_multipliers:
+          path: 0.1
+          subdomain: 0.1
+          url_keywords: 0.1
+          redirect: 0.3
+          html: 0.1
+          redirect_mismatch: 0.0
         keyword_files:
           brand: "data/keywords/heuristic/brand_keywords.csv"
           brand_domains: "data/keywords/heuristic/brand_domains.csv"
           path: "data/keywords/heuristic/path_keywords.csv"
           url:  "data/keywords/heuristic/url_keywords.csv"
+        list_files:
+          suspicious_tlds: "data/keywords/heuristic/suspicious_tlds.csv"
+          trusted_domains: "data/keywords/heuristic/trusted_domains.csv"
+          identity_providers: "data/keywords/heuristic/identity_providers.csv"
+          hosting_platforms: "data/keywords/heuristic/hosting_platforms.csv"
 
       google_safe_browsing:
         enabled: true
@@ -198,6 +221,71 @@ DEFAULT_URL_CSV = dedent(
 ).strip() + "\n"
 
 
+DEFAULT_SUSPICIOUS_TLDS_CSV = dedent(
+    """
+    value
+    .tk
+    .ml
+    .ga
+    .cf
+    """
+).strip() + "\n"
+
+
+DEFAULT_TRUSTED_DOMAINS_CSV = dedent(
+    """
+    value
+    """
+).strip() + "\n"
+
+
+DEFAULT_IDENTITY_PROVIDERS_CSV = dedent(
+    """
+    value
+    microsoftonline.com
+    live.com
+    accounts.google.com
+    appleid.apple.com
+    auth0.com
+    okta.com
+    onelogin.com
+    pingidentity.com
+    duosecurity.com
+    github.com
+    gitlab.com
+    """
+).strip() + "\n"
+
+
+DEFAULT_HOSTING_PLATFORMS_CSV = dedent(
+    """
+    value
+    godaddysites.com
+    wixsite.com
+    weebly.com
+    square.site
+    myshopify.com
+    blogspot.com
+    wordpress.com
+    netlify.app
+    vercel.app
+    pages.dev
+    workers.dev
+    github.io
+    gitlab.io
+    firebaseapp.com
+    web.app
+    azurewebsites.net
+    herokuapp.com
+    repl.co
+    glitch.me
+    ngrok.io
+    ngrok-free.app
+    ngrok.app
+    """
+).strip() + "\n"
+
+
 def info(msg: object) -> None:
     print("[INFO]", str(msg))
 
@@ -260,6 +348,10 @@ def ensure_directories_and_files() -> None:
     ensure_file(data_dir / "brand_domains.csv", DEFAULT_BRAND_DOMAINS_CSV)
     ensure_file(data_dir / "path_keywords.csv", DEFAULT_PATH_CSV)
     ensure_file(data_dir / "url_keywords.csv", DEFAULT_URL_CSV)
+    ensure_file(data_dir / "suspicious_tlds.csv", DEFAULT_SUSPICIOUS_TLDS_CSV)
+    ensure_file(data_dir / "trusted_domains.csv", DEFAULT_TRUSTED_DOMAINS_CSV)
+    ensure_file(data_dir / "identity_providers.csv", DEFAULT_IDENTITY_PROVIDERS_CSV)
+    ensure_file(data_dir / "hosting_platforms.csv", DEFAULT_HOSTING_PLATFORMS_CSV)
 
 
 def python_executable_of_venv(venv_dir: Path) -> Path:

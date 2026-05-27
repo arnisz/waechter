@@ -9,7 +9,8 @@ Improvements over the previous version (referenced inline by number):
       brand keyword appears in the name. Protects domains like
       *.googleapis.com that wouldn't match a keyword.
 
-  #2  Global trusted-domain allow-list (lists.trusted_domains). Matching
+  #2  Global trusted-domain allow-list (list_files.trusted_domains / legacy
+      lists.trusted_domains). Matching
       hostnames short-circuit to score 0 without any further checks.
 
   #3  Subdomain heuristic now uses pattern + entropy detection for
@@ -72,52 +73,14 @@ _TLD_EXTRACT = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=False)
 
 
 # ---------------------------------------------------------------------------
-# Built-in default lists. Operators should override via heuristic.lists.* in
-# waechter.yaml; the defaults are conservative starting points.
+# Default data file paths. List content is kept in CSV files for testability
+# and operational tuning without code edits.
 # ---------------------------------------------------------------------------
 
-_DEFAULT_TRUSTED_DOMAINS: List[str] = []
-
-_DEFAULT_IDENTITY_PROVIDERS: List[str] = [
-    "microsoftonline.com",
-    "live.com",
-    "accounts.google.com",
-    "appleid.apple.com",
-    "auth0.com",
-    "okta.com",
-    "onelogin.com",
-    "pingidentity.com",
-    "duosecurity.com",
-    "github.com",
-    "gitlab.com",
-]
-
-_DEFAULT_HOSTING_PLATFORMS: List[str] = [
-    # User-controlled subdomains on long-lived platform etld+1s. WHOIS on
-    # the registrable domain is misleading here.
-    "godaddysites.com",
-    "wixsite.com",
-    "weebly.com",
-    "square.site",
-    "myshopify.com",
-    "blogspot.com",
-    "wordpress.com",
-    "netlify.app",
-    "vercel.app",
-    "pages.dev",
-    "workers.dev",
-    "github.io",
-    "gitlab.io",
-    "firebaseapp.com",
-    "web.app",
-    "azurewebsites.net",
-    "herokuapp.com",
-    "repl.co",
-    "glitch.me",
-    "ngrok.io",
-    "ngrok-free.app",
-    "ngrok.app",
-]
+_DEFAULT_SUSPICIOUS_TLDS_FILE = "data/keywords/heuristic/suspicious_tlds.csv"
+_DEFAULT_TRUSTED_DOMAINS_FILE = "data/keywords/heuristic/trusted_domains.csv"
+_DEFAULT_IDENTITY_PROVIDERS_FILE = "data/keywords/heuristic/identity_providers.csv"
+_DEFAULT_HOSTING_PLATFORMS_FILE = "data/keywords/heuristic/hosting_platforms.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -262,26 +225,36 @@ class HeuristicProvider(ScanProvider):
         # domains. Raise to a small value (e.g. 0.2) if you want a residual.
         self.m_redir_mismatch = float(multipliers.get("redirect_mismatch", 0.0))
 
-        # ----- lists -----
+        # ----- keyword and list files -----
+        kw_files = cfg.get("keyword_files", {}) or {}
+        list_files = cfg.get("list_files", {}) or {}
+        # Legacy inline lists are still supported for backward compatibility.
         lists_section = cfg.get("lists", {}) or {}
-        self.suspicious_tlds: List[str] = list(
-            lists_section.get("suspicious_tlds", [".tk", ".ml", ".ga", ".cf"])
+
+        def _get_list_items(name: str, default_file: str) -> List[str]:
+            if name in lists_section:
+                raw_values = lists_section.get(name, []) or []
+                return [str(v).strip().lower() for v in raw_values if str(v).strip()]
+            file_path = list_files.get(name, default_file)
+            return [v.strip().lower() for v in load_keywords_list(file_path) if v.strip()]
+
+        self.suspicious_tlds: List[str] = _get_list_items(
+            "suspicious_tlds",
+            _DEFAULT_SUSPICIOUS_TLDS_FILE,
         )
         self.trusted_domains: List[str] = [
-            d.lower().lstrip(".")
-            for d in lists_section.get("trusted_domains", _DEFAULT_TRUSTED_DOMAINS)
+            d.lstrip(".")
+            for d in _get_list_items("trusted_domains", _DEFAULT_TRUSTED_DOMAINS_FILE)
         ]
         self.identity_providers: List[str] = [
-            d.lower().lstrip(".")
-            for d in lists_section.get("identity_providers", _DEFAULT_IDENTITY_PROVIDERS)
+            d.lstrip(".")
+            for d in _get_list_items("identity_providers", _DEFAULT_IDENTITY_PROVIDERS_FILE)
         ]
         self.hosting_platforms: List[str] = [
-            d.lower().lstrip(".")
-            for d in lists_section.get("hosting_platforms", _DEFAULT_HOSTING_PLATFORMS)
+            d.lstrip(".")
+            for d in _get_list_items("hosting_platforms", _DEFAULT_HOSTING_PLATFORMS_FILE)
         ]
 
-        # ----- keyword files -----
-        kw_files = cfg.get("keyword_files", {}) or {}
         brand_fp = kw_files.get("brand", "data/keywords/heuristic/brand_keywords.csv")
         brand_domains_fp = kw_files.get("brand_domains", "data/keywords/heuristic/brand_domains.csv")
         path_fp = kw_files.get("path", "data/keywords/heuristic/path_keywords.csv")
