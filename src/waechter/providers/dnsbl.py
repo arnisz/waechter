@@ -79,7 +79,7 @@ class DnsblProvider(ScanProvider):
         except ValueError:
             return False
 
-    async def scan(self, url: str, session: aiohttp.ClientSession) -> Dict[str, Any]:
+    async def scan(self, url: str, session: aiohttp.ClientSession, link_id: str | None = None) -> Dict[str, Any]:
         if not self.enabled:
             return {"raw_score": 0.0, "raw_response": "skipped: disabled"}
 
