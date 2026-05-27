@@ -55,6 +55,8 @@ class HeuristicProvider(ScanProvider):
 
         # whois
         self.whois_missing_creation = float(whois_scores.get("missing_creation", 0.5))
+
+        self.whois_age_lt_3d = float(whois_scores.get("age_lt_3d", 1.5))
         self.whois_age_lt_7d = float(whois_scores.get("age_lt_7d", 1.0))
         self.whois_age_lt_30d = float(whois_scores.get("age_lt_30d", 0.7))
         self.whois_fail_default = float(whois_scores.get("fail_default", 0.5))
@@ -279,8 +281,10 @@ class HeuristicProvider(ScanProvider):
                 creation_date = creation_date.replace(tzinfo=None)
 
             age_days = (datetime.now(timezone.utc).replace(tzinfo=None) - creation_date).days
-            if age_days < 7:
-                return self.whois_age_lt_7d
+            if age_days < 3:
+                return self.whois_age_lt_3d
+            elif age_days < 7:
+                return  self.whois_age_lt_7d
             elif age_days < 30:
                 return self.whois_age_lt_30d
         except Exception as e:

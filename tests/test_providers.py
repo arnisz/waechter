@@ -137,6 +137,26 @@ async def test_heuristic_provider_scores_punycode_hostname(monkeypatch):
     assert res["signals"]["punycode_hostname"] == 0.5
 
 @pytest.mark.asyncio
+async def test_heuristic_provider_scores_whois_age_less_than_3_days(monkeypatch):
+    provider = HeuristicProvider()
+    url = "https://new-domain.com"
+    
+    async def mock_check_whois_age(hostname):
+        return provider.whois_age_lt_3d
+
+    monkeypatch.setattr(provider, "_check_whois_age", mock_check_whois_age)
+    
+    async with aiohttp.ClientSession() as session:
+        with aioresponses() as m:
+            m.head(url, status=200)
+            m.get(url, status=200, headers={"Content-Type": "text/plain"}, body="")
+            
+            res = await provider.scan(url, session)
+            
+    assert res["signals"]["whois_age_suspicious"] == 1.5
+    assert res["raw_score"] == 1.0
+
+@pytest.mark.asyncio
 async def test_gsb_provider():
     provider = GoogleSafeBrowsingProvider("dummy-key")
     async with aiohttp.ClientSession() as session:

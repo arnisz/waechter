@@ -10,6 +10,7 @@ Current version: **0.1.0**
 - Provider-based scan architecture.
 - Built-in heuristic URL checks.
 - Optional Google Safe Browsing provider.
+- Optional DNSBL provider (UCEPROTECT Level 3 via Redis).
 - Optional local ClamAV provider via `clamd` and `INSTREAM`.
 - Weighted Bayesian noisy-OR score aggregation.
 - Structured JSON logs.
@@ -50,6 +51,7 @@ You will be prompted for:
 - optional `GOOGLE_SAFE_BROWSING_API_KEY`
 - polling, batch, threshold, and concurrency settings
 - optional ClamAV settings
+- optional DNSBL / Redis settings
 
 After installation, activate the virtual environment and start the worker:
 
@@ -109,7 +111,8 @@ Optional variables:
 ```env
 GOOGLE_SAFE_BROWSING_API_KEY=your_google_safe_browsing_api_key
 CLAMAV_ENABLED=false
-CLAMAV_SOCKET_PATH=/var/run/clamav/clamd.ctl
+DNSBL_ENABLED=false
+DNSBL_REDIS_URL=redis://localhost:6379/0
 SCAN_CONCURRENCY=20
 BATCH_SIZE=50
 MIN_WAIT_MS=5000
@@ -330,6 +333,10 @@ Enabled when `GOOGLE_SAFE_BROWSING_API_KEY` is set. It uses the Google Safe Brow
 ### ClamAV Provider
 
 Enabled with `CLAMAV_ENABLED=true`. It downloads URL content and streams it to local `clamd` through `INSTREAM`.
+
+### DNSBL Provider
+
+Enabled with `DNSBL_ENABLED=true`. It extracts the hostname, resolves it to IPv4 addresses, and checks them against the UCEPROTECT Level 3 list stored in a Redis database. It uses an optimized lookup covering masks from /32 down to /8.
 
 ## Score Aggregation
 

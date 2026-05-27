@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 from waechter.api import WorkerApi
 from waechter import __version__
-from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider
+from waechter.providers import HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider, DnsblProvider
 from waechter.loop import pull_loop
 from waechter.logger import get_logger
 from waechter.config_loader import as_bool, provider_cfg
@@ -41,6 +41,21 @@ async def main():
     gsb_cfg = provider_cfg("google_safe_browsing")
     if gsb_key and as_bool(gsb_cfg.get("enabled", True)):
         providers.append(GoogleSafeBrowsingProvider(gsb_key))
+
+    # DNSBL enabled
+    dnsbl_cfg = provider_cfg("dnsbl")
+    dnsbl_env = os.environ.get("DNSBL_ENABLED")
+    if dnsbl_env is not None:
+        dnsbl_enabled = dnsbl_env.lower() in ("1", "true", "yes")
+    else:
+        dnsbl_enabled = as_bool(dnsbl_cfg.get("enabled", False), default=False)
+
+    if dnsbl_enabled:
+        providers.append(DnsblProvider(
+            redis_url=os.environ.get("DNSBL_REDIS_URL"),
+            redis_password=os.environ.get("DNSBL_REDIS_PASSWORD"),
+            enabled=True
+        ))
 
     logger.info("Starting Waechter daemon", extra={"extra_data": {
         "version": __version__,

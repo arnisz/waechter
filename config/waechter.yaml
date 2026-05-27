@@ -1,13 +1,13 @@
 providers:
   heuristic:
     enabled: true
-    weight: 0.6
+    weight: 0.67
     thresholds:
       redirect:
         warning: 3
         high: 5
         max: 10
-      long_url_chars: 500
+      long_url_chars: 300
     scores:
       ip_address: 0.6
       suspicious_tld: 0.5
@@ -17,6 +17,7 @@ providers:
       path_keywords: 0.3
       whois:
         missing_creation: 0.5
+        age_lt_3d: 1.5
         age_lt_7d: 1.0
         age_lt_30d: 0.7
         fail_default: 0.5
@@ -32,7 +33,7 @@ providers:
         xhr_or_fetch: 0.5
       parsing_failed: 0.8
     lists:
-      suspicious_tlds: [".tk", ".ml", ".ga", ".cf"]
+      suspicious_tlds: [".tk", ".ml", ".ga", ".cf", "cfd", ".top", ".xyz", ".bond", ".sbs", ".click", ".monster", ".cyou", ".vip", ".shop", ".cam", ".icu", ".live", ".stream", ".win", ".biz", ".info", ".site", ".online", ".club"]
     keyword_files:
       brand: "data/keywords/heuristic/brand_keywords.csv"
       brand_domains: "data/keywords/heuristic/brand_domains.csv"
@@ -59,3 +60,12 @@ providers:
     timeouts:
       download_sec: 10
       scan_sec: 10
+
+  dnsbl:
+    enabled: false
+    weight: 0.6
+    redis_url: "redis://localhost:6379/0"
+    timeout_ms: 3000
+    max_ips: 8
+    score_listed: 0.6
+    use_spamscore: false
