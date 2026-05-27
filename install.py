@@ -53,6 +53,7 @@ DEFAULT_CONFIG_YAML = dedent(
           path_keywords: 0.3
           whois:
             missing_creation: 0.5
+            age_lt_3d: 1.5
             age_lt_7d: 1.0
             age_lt_30d: 0.7
             fail_default: 0.5
@@ -95,6 +96,15 @@ DEFAULT_CONFIG_YAML = dedent(
         timeouts:
           download_sec: 10
           scan_sec: 10
+
+      dnsbl:
+        enabled: false
+        weight: 0.6
+        redis_url: "redis://localhost:6379/0"
+        timeout_ms: 3000
+        max_ips: 8
+        score_listed: 0.6
+        use_spamscore: false
 
       screenshot:
         enabled: true
