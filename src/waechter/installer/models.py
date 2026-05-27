@@ -82,23 +82,27 @@ class InstallerConfig:
     def resolved_screenshot_dir(self) -> Path:
         screenshot_dir = self.screenshot_dir or constants.DEFAULT_ENV_VALUES["SCREENSHOT_DIR"]
         raw_path = Path(screenshot_dir)
-        if raw_path.is_absolute():
+        if screenshot_dir.startswith(("/", "\\")) or (len(screenshot_dir) >= 2 and screenshot_dir[1] == ":"):
             return raw_path
         stripped = screenshot_dir[2:] if screenshot_dir.startswith("./") else screenshot_dir
         return self.app_dir / stripped
+
+    def _screenshot_dir_is_absolute(self) -> bool:
+        screenshot_dir = self.screenshot_dir or constants.DEFAULT_ENV_VALUES["SCREENSHOT_DIR"]
+        return screenshot_dir.startswith(("/", "\\")) or (len(screenshot_dir) >= 2 and screenshot_dir[1] == ":")
 
     @property
     def read_write_paths(self) -> list[Path]:
         paths = [self.app_dir, self.env_dir]
         screenshot_path = self.resolved_screenshot_dir
-        if self.screenshot_enabled and screenshot_path.is_absolute() and screenshot_path not in paths:
+        if self.screenshot_enabled and self._screenshot_dir_is_absolute() and screenshot_path not in paths:
             paths.append(screenshot_path)
         return paths
 
     @property
     def protect_home_value(self) -> str:
         screenshot_path = self.resolved_screenshot_dir
-        if self.screenshot_enabled and screenshot_path.is_absolute() and screenshot_path.parts[:2] == ("/", "home"):
+        if self.screenshot_enabled and self._screenshot_dir_is_absolute() and screenshot_path.as_posix().startswith("/home/"):
             return "false"
         return "true"
 

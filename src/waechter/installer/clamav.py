@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-import grp
 import logging
 import time
 from pathlib import Path
+
+try:
+    import grp
+except ImportError:  # pragma: no cover - Windows compatibility
+    grp = None
 
 from waechter.installer.models import InstallerConfig
 from waechter.installer.runtime import CommandRunner
@@ -71,6 +75,9 @@ def ensure_clamav(config: InstallerConfig, runner: CommandRunner) -> bool:
     timeout = 90 if restart_needed else 10
     if not wait_for_clamav_socket(config.clamav_socket_path, timeout=timeout):
         logger.warning("ClamAV socket (%s) is not ready after %ss", config.clamav_socket_path, timeout)
+
+    if grp is None:
+        return restart_needed
 
     try:
         grp.getgrnam("clamav")

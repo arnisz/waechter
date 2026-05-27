@@ -111,7 +111,7 @@ def _iter_rows(file_path: Path) -> Iterable[Dict[str, str]]:
         pos = f.tell()
         first_line = ""
         for line in f:
-            s = line.strip()
+            s = line.strip().lstrip("\ufeff")
             if not s or s.startswith('#'):
                 continue
             first_line = s
@@ -126,9 +126,12 @@ def _iter_rows(file_path: Path) -> Iterable[Dict[str, str]]:
             yield from ({k.strip(): (v.strip() if v is not None else v) for k, v in row.items()} for row in reader)
         else:
             # one value per line, expose under generic key 'value'
+            header_names = {"value", "keyword", "path", "domain", "brand"}
             for ln in f:
-                s = ln.strip()
+                s = ln.strip().lstrip("\ufeff")
                 if not s or s.startswith('#'):
+                    continue
+                if s.lower() in header_names:
                     continue
                 yield {"value": s}
 

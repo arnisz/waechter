@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-import grp
 import logging
 import os
 import re
 from pathlib import Path
+
+try:
+    import grp
+except ImportError:  # pragma: no cover - Windows compatibility
+    grp = None
 
 from waechter.installer.constants import DEFAULT_ENV_VALUES, ENV_FILE, ENV_KEYS
 from waechter.installer.models import InstallerConfig
@@ -46,8 +50,7 @@ def as_bool(value: str | None, *, default: bool = False) -> bool:
 
 
 def build_config(mode: str = "auto", environ: dict[str, str] | None = None) -> InstallerConfig:
-    env_source = os.environ if environ is None else environ
-    env = dict(env_source)
+    env = dict(os.environ) if environ is None else dict(environ)
     persisted = load_env_file()
 
     effective = DEFAULT_ENV_VALUES.copy()
@@ -121,9 +124,10 @@ def write_env_file(config: InstallerConfig) -> bool:
 
     config.env_file.write_text(content, encoding="utf-8")
     os.chmod(config.env_file, 0o640)
-    group = grp.getgrnam(config.app_user).gr_gid
-    os.chown(config.env_dir, 0, group)
-    os.chown(config.env_file, 0, group)
+    if grp is not None:
+        group = grp.getgrnam(config.app_user).gr_gid
+        os.chown(config.env_dir, 0, group)
+        os.chown(config.env_file, 0, group)
     os.chmod(config.env_dir, 0o750)
     return previous_content != content
 

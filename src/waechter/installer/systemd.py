@@ -28,7 +28,7 @@ def install_bootstrap_script(config: InstallerConfig, runner: CommandRunner) -> 
 
 
 def render_service_unit(config: InstallerConfig) -> str:
-    read_write_paths = " ".join(str(path) for path in config.read_write_paths)
+    read_write_paths = " ".join(path.as_posix() for path in config.read_write_paths)
     return f"""[Unit]
 Description=Waechter URL scanning worker
 Wants=network-online.target
@@ -38,9 +38,9 @@ After=network-online.target
 Type=simple
 User={config.app_user}
 Group={config.app_user}
-WorkingDirectory={config.app_dir}
-EnvironmentFile={config.env_file}
-ExecStart={config.venv_python} {config.app_dir / 'main.py'}
+WorkingDirectory={config.app_dir.as_posix()}
+EnvironmentFile={config.env_file.as_posix()}
+ExecStart={config.venv_python.as_posix()} {(config.app_dir / 'main.py').as_posix()}
 Restart=always
 RestartSec=10
 StandardOutput=journal

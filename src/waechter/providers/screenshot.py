@@ -1,7 +1,7 @@
 import os
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict
 import aiohttp
 
@@ -55,15 +55,18 @@ class ScreenshotProvider(ScanProvider):
             self.enabled = False
             self.disabled_reason = "screenshot_dir_unavailable"
             p = self.screenshot_dir
+            under_home = p.as_posix().startswith("/home/")
             nearest = next((a for a in [p, *p.parents] if a.exists()), Path("/"))
-            under_home = p.parts[:2] == ("/", "home") if p.is_absolute() else False
+            nearest_display = nearest.as_posix()
+            if under_home and nearest_display in {"/", "\\"}:
+                nearest_display = str(PurePosixPath("/home"))
             logger.error("screenshot_provider_init_failed", extra={"extra_data": {
                 "provider": self.name,
                 "dir": str(p),
                 "error_type": type(e).__name__,
                 "error": str(e),
                 "path_is_under_home": under_home,
-                "nearest_existing_parent": str(nearest),
+                "nearest_existing_parent": nearest_display,
                 "install_hint": "Prefer a directory under /opt/waechter (e.g. /opt/waechter/screenshots) to avoid permission issues.",
             }})
             return
@@ -219,11 +222,13 @@ class ScreenshotProvider(ScanProvider):
                     browser_args.append("--no-sandbox")
 
                 browser = await p.chromium.launch(headless=True, args=browser_args)
-                context = await browser.new_context(
-                    viewport={"width": 1024, "height": 768},
-                    screen={"width": 1024, "height": 768},
-                    user_agent=CHROME_USER_AGENT,
-                )
+                viewport = {"width": 1024, "height": 768}
+                context_options: Dict[str, Any] = {
+                    "viewport": viewport,
+                    "screen": viewport,
+                    "user_agent": CHROME_USER_AGENT,
+                }
+                context = await browser.new_context(**context_options)
                 page = await context.new_page()
                 try:
                     await page.goto(url, timeout=self.timeout_ms, wait_until="domcontentloaded")

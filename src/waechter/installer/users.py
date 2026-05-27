@@ -1,10 +1,18 @@
 from __future__ import annotations
 
-import grp
 import logging
 import os
-import pwd
 from pathlib import Path
+
+try:
+    import grp
+except ImportError:  # pragma: no cover - Windows compatibility
+    grp = None
+
+try:
+    import pwd
+except ImportError:  # pragma: no cover - Windows compatibility
+    pwd = None
 
 from waechter.installer.models import InstallerConfig
 from waechter.installer.runtime import CommandRunner
@@ -14,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 
 def user_exists(username: str) -> bool:
+    if pwd is None:
+        return False
+
     try:
         pwd.getpwnam(username)
         return True
@@ -43,6 +54,9 @@ def ensure_system_user(config: InstallerConfig, runner: CommandRunner) -> bool:
 
 def ensure_path_owner(path: Path, username: str, groupname: str, *, recursive: bool = False) -> None:
     if not path.exists():
+        return
+
+    if pwd is None or grp is None:
         return
 
     uid = pwd.getpwnam(username).pw_uid
