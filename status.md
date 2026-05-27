@@ -37,6 +37,10 @@ Die Anforderungen aus dem Pflichtenheft Version 1.2 wurden analysiert. Das Basis
 - DNSBL-Provider gemäß `prompt_dnsbl_provider.md` implementieren und abnehmen.
 - Deployment Setup / Containerisierung / systemd-Konfiguration auf dem Hetzner VPS; Cloudflare-Konfiguration prüfen. Beim Deployment sicherstellen, dass die DNSBL-Redis-Instanz erreichbar und die UCEPROTECT-Liste befüllt ist.
 
+## Verbesserungen des Algorithmus
+ - [x] Neufassung des heuristic Providers
+ - [x] Testsuite anpassen an den Code des Heuristic providers erforderlich (Erweiterung der Tests für neue Heuristik-Features)
+
 ## Offene Punkte / Backlog (aus Pflichtenheft v1.2)
 
 - WHOIS-Caching (Pflichtenheft Punkt 3) — eTLD+1-Schlüssel, TTL ~24h, In-Memory/Redis.

@@ -53,16 +53,21 @@ Dieses Dokument beschreibt Zweck, Architektur, Datenfluss, Konfiguration und Bet
 
 ### 5.1 Heuristik
 
-Der `HeuristicProvider` nutzt u. a.:
-- Hostname‑Normalisierung und Punycode‑Erkennung
-- IP‑Adressen als Host
-- verdächtige TLD‑Liste
-- sehr lange URLs
-- Brand‑Kontext: Keywords (`data/keywords/heuristic/brand_keywords.csv`) + offizielle Domains (`brand_domains.csv`, Modi `etld1`/`exact`)
-- Pfad‑ und URL‑Keywords (`path_keywords.csv`, `url_keywords.csv`)
-- WHOIS‑basierte Domainalter‑Signale (neu/fehlend → höhere Scores)
-- Redirect‑Heuristiken (Anzahl, Domain‑Mismatch, Redirect auf IP)
-- HTML‑Signale (Formular + Passwort/Email, XHR/fetch)
+Der `HeuristicProvider` (Improvement v2) nutzt u. a.:
+- **Globale Trusted-Domain Allowlist**: Domains in `trusted_domains` (Konfiguration) führen sofort zu einem Score von 0.0.
+- **Entkoppelte Erkennung offizieller Domains**: Domains in `brand_domains.csv` werden auch ohne Keyword-Treffer als offiziell erkannt (hilfreich für Infrastruktur-Domains wie `googleapis.com`).
+- **Subdomain-Heuristik**: Erkennt zufällig aussehende Labels (Entropie-Check) und ungewöhnlich lange/tiefe Subdomain-Strukturen.
+- **Brand‑Kontext**: Keywords (`brand_keywords.csv`) + offizielle Domains (`brand_domains.csv`, Modi `etld1`, `exact`, `subdomain_of`).
+- **Identity-Provider Awareness**: Cross-Domain Form-Actions zu bekannten Providern (Google, Microsoft, etc.) werden deutlich geringer bestraft als unbekannte Cross-Domain Ziele.
+- **WHOIS-Optimierung**: Überspringt WHOIS-Abfragen für bekannte Hosting-Plattformen (z.B. `workers.dev`, `vercel.app`), da das Alter der Basis-Domain hier nicht aussagekräftig für die Subdomain ist.
+- **Transparente Ergebnisse**: Das Feld `reasons` enthält für jeden erkannten Signal-Typ eine menschenlesbare Erklärung inkl. des jeweiligen Score-Beitrags.
+- Hostname‑Normalisierung und Punycode‑Erkennung.
+- IP‑Adressen als Host.
+- Verdächtige TLD‑Liste.
+- Sehr lange URLs.
+- Pfad‑ und URL‑Keywords (`path_keywords.csv`, `url_keywords.csv`).
+- Redirect‑Heuristiken (Anzahl, Domain‑Mismatch, Redirect auf IP).
+- HTML‑Signale (Formular + Passwort/Email, XHR/fetch).
 
 Hinweis zu WHOIS: Aktuell erfolgt die Abfrage pro registrierbarer Basis‑Domain synchron via `python-whois` im Thread‑Pool (siehe `_check_whois_age`). Ein explizites Cache‑Layer ist noch nicht implementiert (siehe Pflichtenheft, Punkt 3).
 

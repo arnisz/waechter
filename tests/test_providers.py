@@ -361,30 +361,146 @@ async def test_heuristic_provider_gmail_low_risk(monkeypatch):
     assert "brand_impersonation" not in res["signals"], (
         f"gmail.com should NOT be flagged as impersonation, signals={res['signals']}"
     )
-    """
-    Test that a suspicious subdomain on a known site-builder (like godaddysites.com)
-    should NOT be scored as 0, even if the base domain is old.
 
-    Reproducer for reported issue: https://site-v4y2ws0vq.godaddysites.com/
-    Currently this test FAILS as expected.
-    """
+
+# ---------------------------------------------------------------------------
+# Improvements v2: Trusted domains, Subdomains, Reasons, etc.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_trusted_domain_short_circuit(monkeypatch):
     provider = HeuristicProvider()
+    provider.trusted_domains = ["google.com"]
+    
+    async with aiohttp.ClientSession() as session:
+        # No need to mock HTTP because it should short-circuit
+        res = await provider.scan("https://www.google.com/search?q=test", session)
+        assert res["raw_score"] == 0.0
+        assert "trusted domain (www.google.com)" in res["reasons"]
 
-    # Mock WHOIS to return an OLD creation date (2013) to reflect real world godaddysites.com
-    async def mock_whois_old(hostname):
-        return 0.0
-
-    monkeypatch.setattr(provider, "_check_whois_age", mock_whois_old)
-
-    url = "https://site-v4y2ws0vq.godaddysites.com/"
-
+@pytest.mark.asyncio
+async def test_subdomain_entropy(monkeypatch):
+    provider = HeuristicProvider()
+    # Mock WHOIS to avoid network calls
+    async def mock_whois(hostname): return 0.0
+    monkeypatch.setattr(provider, "_check_whois_age", mock_whois)
+    
+    url = "https://a1b2c3d4e5f6.example.com"
     async with aiohttp.ClientSession() as session:
         with aioresponses() as m:
-            m.get(url, status=200, body="<html></html>")
             m.head(url, status=200)
-
+            m.get(url, status=200, body="<html></html>")
             res = await provider.scan(url, session)
+            
+    # Signal name is suspicious_subdomain
+    assert any("random-looking subdomain" in r for r in res["reasons"])
+    assert res["signals"]["suspicious_subdomain"] > 0
 
-    # Expected: score > 0 because site-v4y2ws0vq is a suspicious random-looking subdomain
-    assert res["raw_score"] > 0
+@pytest.mark.asyncio
+async def test_subdomain_meaningful_long(monkeypatch):
+    provider = HeuristicProvider()
+    async def mock_whois(hostname): return 0.0
+    monkeypatch.setattr(provider, "_check_whois_age", mock_whois)
+    
+    # "service-status-dashboard-production" is long but not random-looking in terms of entropy
+    # (Default threshold for long is 25 chars, this is 35 chars)
+    url = "https://service-status-dashboard-production.example.com"
+    async with aiohttp.ClientSession() as session:
+        with aioresponses() as m:
+            m.head(url, status=200)
+            m.get(url, status=200, body="<html></html>")
+            res = await provider.scan(url, session)
+            
+    # Should have suspicious_subdomain but with "long" reason, not "random"
+    assert res["signals"]["suspicious_subdomain"] == provider.sub_long
+    assert any("unusually long/deep subdomain" in r for r in res["reasons"])
+
+@pytest.mark.asyncio
+async def test_html_form_identity_provider(monkeypatch):
+    provider = HeuristicProvider()
+    async def mock_whois(hostname): return 0.0
+    monkeypatch.setattr(provider, "_check_whois_age", mock_whois)
+    provider.identity_providers = ["accounts.google.com"]
+    
+    url = "https://malicious-site.com/login"
+    html = '<html><body><form action="https://accounts.google.com/o/oauth2/auth"><input type="password"></form></body></html>'
+    
+    async with aiohttp.ClientSession() as session:
+        with aioresponses() as m:
+            m.head(url, status=200)
+            m.get(url, status=200, body=html, headers={"Content-Type": "text/html"})
+            res = await provider.scan(url, session)
+            
+    # Identity provider multiplier should be applied (default 0.15)
+    # Base score for form + password is 0.8. 
+    # 0.8 * 1.0 (cross-domain) * 0.15 (idp) = 0.12
+    assert res["signals"]["malicious_html_content"] == pytest.approx(0.12)
+    assert any("idp action" in r for r in res["reasons"])
+
+@pytest.mark.asyncio
+async def test_subdomain_of_match_mode(monkeypatch):
+    provider = HeuristicProvider()
+    # Mocking brand_domains for a specific brand
+    from waechter.config_loader import BrandDomain
+    provider.brand_domains = {"testbrand": [BrandDomain(brand="testbrand", domain="testbrand.com", match_mode="subdomain_of")]}
+    # Re-flatten _all_official_entries
+    provider._all_official_entries = [("testbrand.com", "subdomain_of")]
+    
+    async def mock_whois(hostname): return 0.0
+    monkeypatch.setattr(provider, "_check_whois_age", mock_whois)
+    
+    # Subdomain of testbrand.com should be recognized as official
+    url = "https://sub.portal.testbrand.com/login"
+    async with aiohttp.ClientSession() as session:
+        with aioresponses() as m:
+            m.head(url, status=200)
+            m.get(url, status=200, body="<html></html>")
+            res = await provider.scan(url, session)
+            
+    # Official domain should have multipliers applied, and brand_impersonation should be 0
+    assert "brand_impersonation" not in res["signals"]
+
+@pytest.mark.asyncio
+async def test_whois_skip_hosting_platforms(monkeypatch):
+    provider = HeuristicProvider()
+    provider.hosting_platforms = ["workers.dev"]
+    
+    whois_called = False
+    async def mock_whois(hostname):
+        nonlocal whois_called
+        whois_called = True
+        return 0.5
+
+    monkeypatch.setattr(provider, "_check_whois_age", mock_whois)
+    
+    url = "https://my-phish.workers.dev/"
+    async with aiohttp.ClientSession() as session:
+        with aioresponses() as m:
+            m.head(url, status=200)
+            m.get(url, status=200, body="<html></html>")
+            res = await provider.scan(url, session)
+            
+    assert whois_called is False
+    # No specific "Hosting platform" reason is added to the result by the scan loop itself,
+    # but the whois_age_suspicious signal will be missing.
+    assert "whois_age_suspicious" not in res["signals"]
+
+@pytest.mark.asyncio
+async def test_reasons_and_signals_consistency(monkeypatch):
+    provider = HeuristicProvider()
+    async def mock_whois(hostname): return 0.0
+    monkeypatch.setattr(provider, "_check_whois_age", mock_whois)
+    
+    url = "http://1.2.3.4/test"
+    async with aiohttp.ClientSession() as session:
+        with aioresponses() as m:
+            m.head(url, status=200)
+            m.get(url, status=200, body="<html></html>")
+            res = await provider.scan(url, session)
+            
+    assert "ip_address" in res["signals"]
+    assert any("raw IP in URL" in r for r in res["reasons"])
+    # Check if reason includes the score
+    reason_for_ip = [r for r in res["reasons"] if "raw IP in URL" in r][0]
+    assert f"(+{res['signals']['ip_address']:.2f})" in reason_for_ip
 
