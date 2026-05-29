@@ -40,6 +40,44 @@ Dieses Dokument beschreibt Zweck, Architektur, Datenfluss, Konfiguration und Bet
 5. Ergebnis posten: `POST /links/{id}/scan-result` mit Aggregat und Einzelwerten.
 6. Leerlauf: Bei leeren Batches Backoff bis `MAX_WAIT_MS`, dann erneut `release-stale`.
 
+### 3.1 Schnittstellenvertrag zwischen Wächter und Link‑Verkürzer
+
+Der Wächter ist der Worker für den Link‑Verkürzer. Der Link‑Verkürzer besitzt die Datenbank, verwaltet Claims und stellt interne HTTP‑Endpunkte bereit; der Wächter fragt diese Endpunkte ab, führt die Sicherheitsprüfung aus und schreibt ausschließlich über die API zurück.
+
+**Authentifizierung und Basis‑URL**
+- Alle internen Requests gehen an `WORKER_BASE_URL` und nutzen `Authorization: Bearer <WAECHTER_TOKEN>`.
+- `401 Unauthorized` gilt als Konfigurations-/Secret‑Fehler und beendet den Worker frühzeitig.
+
+**Boot/Health**
+- `GET /api/internal/health` prüft beim Start, ob die Gegenstelle erreichbar ist.
+- `POST /api/internal/links/release-stale` gibt verwaiste Claims frei. Vorgesehen ist der Aufruf beim Boot und danach periodisch, damit nach Worker‑Crashes keine Links dauerhaft `claimed` bleiben.
+
+**Pending‑Links / Claiming**
+- `GET /api/internal/links/pending?limit=<BATCH_SIZE>` liefert bereits von der Gegenstelle geclaimte Links im Format `PendingLink`:
+  - `id`: stabile 32‑Zeichen‑Hex‑ID; wird für API‑Calls verwendet.
+  - `short_code`: nur für Logging/Diagnose; nicht als Primärschlüssel verwenden.
+  - `target_url`: zu prüfende Ziel‑URL.
+  - `created_at`: ISO‑Zeitstempel.
+- Der Wächter setzt Claims nicht direkt in der Datenbank, sondern verlässt sich auf das Claiming der Gegenstelle beim Pending‑Abruf.
+
+**Scan‑Ergebnis**
+- Nach Provider‑Ausführung und Aggregation sendet der Wächter `POST /api/internal/links/{id}/scan-result` mit:
+  - `aggregate_score`: berechneter Gesamtscore, auf eine endliche Zahl normalisiert und gerundet.
+  - `status`: `active`, `warning` oder `blocked` gemäß `THRESHOLD_WARNING`/`THRESHOLD_BLOCK`.
+  - `scans`: eine Zeile pro erfolgreichem Provider‑Ergebnis mit `provider`, `raw_score`, `raw_response`.
+- `raw_response` ist `null`, wenn der Provider‑Score unter `0.3` liegt oder keine Rohdaten vorliegen. Komplexe Rohdaten (`dict`/`list`) werden vor dem Senden als gültiger JSON‑String serialisiert, damit das Gegenstellen‑Interface `string | null` erfüllt wird.
+- Interne Aggregationsgewichte (`weight`) werden nicht an die Gegenstelle übertragen; sie dienen nur der lokalen Score‑Berechnung.
+
+**Erwartetes Verhalten der Gegenstelle nach erfolgreichem POST**
+- Die Gegenstelle markiert den Link als geprüft (`checked=1`), speichert `spam_score`, `status` und `last_checked_at`, setzt `claimed_at=NULL`, legt Provider‑Zeilen in `security_scans` an und invalidiert den Link‑Cache (`LINKS_KV.delete("link:" + short_code)`).
+- `200 OK` mit `{ "ok": true }` bedeutet: Ergebnis wurde übernommen.
+- `404` bedeutet: Link nicht gefunden oder `manual_override=1`; der Wächter ignoriert diesen Fall bewusst, weil manuell übersteuerte Links nicht überschrieben werden sollen.
+- Andere `4xx`/`5xx`‑Antworten gelten als Fehler. Der Wächter loggt Status und Antworttext, damit Payload‑ oder Validierungsprobleme der Gegenstelle nachvollziehbar sind.
+
+**Fehler- und Recovery‑Semantik**
+- Wenn das Posten des Ergebnisses fehlschlägt, bleibt der Link auf Gegenstellen‑Seite typischerweise geclaimt und ungeprüft. Das ist beabsichtigt: `release-stale` gibt Claims nach Ablauf des Backend‑Timeouts wieder frei, sodass der Link erneut in `pending` auftauchen kann.
+- Provider‑Fehler verhindern nicht automatisch den gesamten Scan; erfolgreiche Provider‑Resultate werden weiter aggregiert. Wenn alle Provider fehlschlagen oder deaktiviert sind, wird kein Ergebnis gepostet.
+
 ## 4. Konfiguration
 
 - Primär über `.env`/Umgebungsvariablen:

@@ -28,7 +28,7 @@ class WorkerApi:
                     resp.request_info,
                     resp.history,
                     status=resp.status,
-                    message=f"{resp.message} - Body: {body[:500]}",
+                    message=f"{resp.reason} - Body: {body[:500]}",
                     headers=resp.headers
                 )
             resp.raise_for_status()
