@@ -107,6 +107,11 @@ Wichtiger Hinweis: UCEPROTECT Level 3 listet ganze Autonome Systeme (ASN‑weit)
 ## 8. Tests
 
 - Pytest‑Suite vorhanden (u. a. Aggregation, Provider‑Heuristik). Externe Provider‑Tests (GSB/ClamAV/DNSBL) können marker‑basiert ausgeschlossen werden; der DNSBL‑Test arbeitet mit gemocktem Redis‑Client und gemockter DNS‑Auflösung.
+- Aktuelle Verifikation: `pytest tests` läuft grün mit 67 Tests.
+- Test-Hygiene: In `tests/test_providers.py` war ein kopierter Godaddy-Block versehentlich an `test_heuristic_provider_gmail_low_risk` angehängt. Dieser Rest wurde entfernt, damit der Test wieder nur seine eigentliche Aussage prüft.
+- Modul-Hygiene: Das TypedDict-Modul wurde aus dem Repo-Root nach `src/waechter/types.py` verschoben, damit es die Standardbibliothek `types` nicht mehr schatten kann.
+- Datenpflege: `brand_domains.csv` und `brand_domains.csv.example` wurden um `netflix.com` und `disney.com` ergänzt, um die Brand-Context-Tests an die aktuelle Datenlage anzupassen.
+- Rest-Risiko im Repo-Root: `test_redis.py` enthält Top-Level-Code. Wenn künftig wieder ein Root-`pytest`-Lauf statt `pytest tests` verwendet wird, sollte dieses Skript umbenannt oder mit `if __name__ == "__main__":` geschützt werden.
 
 ## 9. Bekannte Verbesserungspunkte (Auszug)
 

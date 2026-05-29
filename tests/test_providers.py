@@ -378,6 +378,7 @@ async def test_trusted_domain_short_circuit(monkeypatch):
         assert res["raw_score"] == 0.0
         assert "trusted domain (www.google.com)" in res["reasons"]
 
+
 @pytest.mark.asyncio
 async def test_subdomain_entropy(monkeypatch):
     provider = HeuristicProvider()
@@ -395,6 +396,7 @@ async def test_subdomain_entropy(monkeypatch):
     # Signal name is suspicious_subdomain
     assert any("random-looking subdomain" in r for r in res["reasons"])
     assert res["signals"]["suspicious_subdomain"] > 0
+
 
 @pytest.mark.asyncio
 async def test_subdomain_meaningful_long(monkeypatch):
@@ -414,6 +416,7 @@ async def test_subdomain_meaningful_long(monkeypatch):
     # Should have suspicious_subdomain but with "long" reason, not "random"
     assert res["signals"]["suspicious_subdomain"] == provider.sub_long
     assert any("unusually long/deep subdomain" in r for r in res["reasons"])
+
 
 @pytest.mark.asyncio
 async def test_html_form_identity_provider(monkeypatch):
@@ -437,6 +440,7 @@ async def test_html_form_identity_provider(monkeypatch):
     assert res["signals"]["malicious_html_content"] == pytest.approx(0.12)
     assert any("idp action" in r for r in res["reasons"])
 
+
 @pytest.mark.asyncio
 async def test_subdomain_of_match_mode(monkeypatch):
     provider = HeuristicProvider()
@@ -459,6 +463,7 @@ async def test_subdomain_of_match_mode(monkeypatch):
             
     # Official domain should have multipliers applied, and brand_impersonation should be 0
     assert "brand_impersonation" not in res["signals"]
+
 
 @pytest.mark.asyncio
 async def test_whois_skip_hosting_platforms(monkeypatch):
@@ -485,6 +490,7 @@ async def test_whois_skip_hosting_platforms(monkeypatch):
     # but the whois_age_suspicious signal will be missing.
     assert "whois_age_suspicious" not in res["signals"]
 
+
 @pytest.mark.asyncio
 async def test_reasons_and_signals_consistency(monkeypatch):
     provider = HeuristicProvider()
@@ -503,4 +509,3 @@ async def test_reasons_and_signals_consistency(monkeypatch):
     # Check if reason includes the score
     reason_for_ip = [r for r in res["reasons"] if "raw IP in URL" in r][0]
     assert f"(+{res['signals']['ip_address']:.2f})" in reason_for_ip
-

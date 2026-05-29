@@ -7,7 +7,7 @@ Die Anforderungen aus dem Pflichtenheft Version 1.2 wurden analysiert. Das Basis
 ## Erledigt
 
 - [x] Initialisierung des Python-Projekts (venv, aiohttp, pytest)
-- [x] Implementierung der Types / Interfaces (TypedDict) `src/types.py`
+- [x] Implementierung der Types / Interfaces (TypedDict) `src/waechter/types.py`
 - [x] Implementierung strukturierter JSON-Logs `src/logger.py`
 - [x] Implementierung der API-Client-Funktionen zum Worker (WorkerApi mit aiohttp) `src/api.py`
 - [x] Implementierung der Provider-Architektur (ABC, HeuristicProvider, GoogleSafeBrowsingProvider, ClamAVProvider) `src/providers/`
@@ -15,6 +15,10 @@ Die Anforderungen aus dem Pflichtenheft Version 1.2 wurden analysiert. Das Basis
 - [x] Implementierung des asynchronen Pull-Loops (asyncio Semaphore, exp. Backoff) `src/loop.py`
 - [x] Hauptskript `main.py`
 - [x] Unittests geschrieben (`tests/test_aggregation.py`, `tests/test_providers.py`, `tests/test_dnsbl_provider.py`) und erfolgreich durchgelaufen.
+- [x] Test-Hygiene bereinigt: kopierter Godaddy-Restblock aus `tests/test_providers.py` entfernt.
+- [x] Modul-Hygiene bereinigt: `types.py` aus dem Repo-Root nach `src/waechter/types.py` verschoben, um Shadowing der Standardbibliothek zu vermeiden.
+- [x] Brand-Daten aktualisiert: `netflix.com` und `disney.com` in `brand_domains.csv` sowie in der `.example`-Vorlage ergänzt.
+- [x] Letzte Verifikation: `pytest tests` läuft grün (67 Tests).
 - [x] Fix: ClamAVProvider respektiert nun die Umgebungsvariable `CLAMAV_ENABLED` (Vorrang vor YAML-Config).
 - [x] Verbesserung: Explizites Logging von Exceptions in ClamAVProvider bei Download- oder Scan-Fehlern.
 - [x] Implementierung der Heuristik: Domains, die weniger als 3 Tage alt sind, werden als hochgradig spam-verdächtig eingestuft (150% Gewichtung).
@@ -47,3 +51,4 @@ Die Anforderungen aus dem Pflichtenheft Version 1.2 wurden analysiert. Das Basis
 - DNS-Auflösungs-Cache für den DNSBL-Provider (Pflichtenheft Punkt 5).
 - Optionale CDN-Allowlist für den DNSBL-Provider zur Reduktion von False Positives (Pflichtenheft Punkt 4).
 - Metriken/Observability (Provider-Aufrufe, Fehlerraten, DNSBL-Hits/Misses).
+- Root-`test_redis.py` enthält Top-Level-Code und bleibt ein Discovery-Risiko, falls statt `pytest tests` wieder ein kompletter Root-Lauf genutzt wird.
