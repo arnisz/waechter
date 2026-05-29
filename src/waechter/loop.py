@@ -16,9 +16,35 @@ MIN_WAIT_MS = int(os.environ.get("MIN_WAIT_MS", 5000))
 MAX_WAIT_MS = int(os.environ.get("MAX_WAIT_MS", 60000))
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", 50))
 SCAN_CONCURRENCY = int(os.environ.get("SCAN_CONCURRENCY", 20))
+PROVIDER_TIMEOUT_SECONDS = float(os.environ.get("PROVIDER_TIMEOUT_SECONDS", 60))
+MAX_LINK_SCAN_ATTEMPTS = int(os.environ.get("MAX_LINK_SCAN_ATTEMPTS", 3))
+PROBLEM_LINK_SCORE = float(os.environ.get("PROBLEM_LINK_SCORE", os.environ.get("THRESHOLD_WARNING", 0.70)))
+PROBLEM_LINK_PROVIDER = "waechter_worker"
 
 wait_ms = MIN_WAIT_MS
 sem = asyncio.Semaphore(SCAN_CONCURRENCY)
+link_failures: dict[str, int] = {}
+
+
+def _build_problem_link_payload(link: PendingLink, failure_count: int, reason: str) -> ScanResultPayload:
+    score = round(PROBLEM_LINK_SCORE, 4)
+    return {
+        "aggregate_score": score,
+        "status": map_status(score),
+        "scans": cast(List[ProviderScanPayload], [
+            {
+                "provider": PROBLEM_LINK_PROVIDER,
+                "raw_score": score,
+                "raw_response": json.dumps({
+                    "reason": reason,
+                    "failure_count": failure_count,
+                    "max_attempts": MAX_LINK_SCAN_ATTEMPTS,
+                    "action": "marked_after_repeated_worker_failures",
+                    "target_url": link["target_url"],
+                }),
+            }
+        ]),
+    }
 
 
 def _normalize_provider_result(provider: ScanProvider, result: Any) -> dict[str, Any] | None:
@@ -48,6 +74,16 @@ def _normalize_provider_result(provider: ScanProvider, result: Any) -> dict[str,
 async def scan_single_link(link: PendingLink, providers: List[ScanProvider], api: WorkerApi, session: aiohttp.ClientSession) -> None:
     scans_payload: List[dict[str, Any]] = []
     aggregation_inputs: List[dict[str, Any]] = []
+    provider_failures: List[dict[str, Any]] = []
+
+    logger.info("scan_started", extra={"extra_data": {
+        "link_id": link["id"],
+        "short_code": link.get("short_code"),
+        "url": link["target_url"],
+        "previous_failures": link_failures.get(link["id"], 0),
+        "provider_timeout_seconds": PROVIDER_TIMEOUT_SECONDS,
+        "max_link_scan_attempts": MAX_LINK_SCAN_ATTEMPTS,
+    }})
 
     for provider in providers:
         if not provider.enabled:
@@ -62,9 +98,13 @@ async def scan_single_link(link: PendingLink, providers: List[ScanProvider], api
                 "link_id": link["id"],
                 "url": link["target_url"],
             }})
-            res = await provider.scan(link["target_url"], session, link_id=link["id"])
+            res = await asyncio.wait_for(
+                provider.scan(link["target_url"], session, link_id=link["id"]),
+                timeout=PROVIDER_TIMEOUT_SECONDS,
+            )
             normalized = _normalize_provider_result(provider, res)
             if normalized is None:
+                provider_failures.append({"provider": provider.name, "error_type": "NoVerdict", "error": "provider returned no usable result"})
                 logger.debug("provider_scan_no_verdict", extra={"extra_data": {
                     "provider": provider.name,
                     "link_id": link["id"],
@@ -101,9 +141,19 @@ async def scan_single_link(link: PendingLink, providers: List[ScanProvider], api
                 "raw_response": scan_raw_response,
                 "weight": float(normalized.get("weight", provider.weight)),
             })
+        except asyncio.TimeoutError:
+            provider_failures.append({"provider": provider.name, "error_type": "TimeoutError", "error": f"provider exceeded {PROVIDER_TIMEOUT_SECONDS}s"})
+            logger.error("provider_scan_timeout", extra={"extra_data": {
+                "provider": provider.name,
+                "link_id": link["id"],
+                "url": link["target_url"],
+                "timeout_seconds": PROVIDER_TIMEOUT_SECONDS,
+            }})
         except QuotaExhaustedError as e:
+            provider_failures.append({"provider": provider.name, "error_type": type(e).__name__, "error": str(e)})
             logger.warning(f"Quota exhausted: {e}", extra={"extra_data": {"provider": provider.name}})
         except Exception as e:
+            provider_failures.append({"provider": provider.name, "error_type": type(e).__name__, "error": str(e)})
             logger.error("provider_scan_error", extra={"extra_data": {
                 "provider": provider.name,
                 "link_id": link["id"],
@@ -113,7 +163,40 @@ async def scan_single_link(link: PendingLink, providers: List[ScanProvider], api
             }})
 
     if not scans_payload:
-        logger.error("All providers failed or disabled", extra={"extra_data": {"link_id": link["id"]}})
+        failure_count = link_failures.get(link["id"], 0) + 1
+        link_failures[link["id"]] = failure_count
+        logger.error("all_providers_failed_or_disabled", extra={"extra_data": {
+            "link_id": link["id"],
+            "url": link["target_url"],
+            "failure_count": failure_count,
+            "max_attempts": MAX_LINK_SCAN_ATTEMPTS,
+            "provider_failures": provider_failures,
+        }})
+        if failure_count < MAX_LINK_SCAN_ATTEMPTS:
+            return
+
+        payload = _build_problem_link_payload(link, failure_count, "all_providers_failed_or_timed_out")
+        logger.warning("problem_link_fallback_payload_ready", extra={"extra_data": {
+            "link_id": link["id"],
+            "failure_count": failure_count,
+            "payload": payload,
+            "provider_failures": provider_failures,
+        }})
+        try:
+            await api.post_scan_result(session, link["id"], payload)
+            link_failures.pop(link["id"], None)
+            logger.warning("problem_link_marked_warning", extra={"extra_data": {
+                "link_id": link["id"],
+                "score": payload["aggregate_score"],
+                "status": payload["status"],
+                "failure_count": failure_count,
+            }})
+        except Exception as e:
+            logger.error("problem_link_fallback_post_failed", extra={"extra_data": {
+                "link_id": link["id"],
+                "error_type": type(e).__name__,
+                "error": str(e),
+            }})
         return
 
     agg_score = round(aggregate_score(aggregation_inputs), 4)
@@ -134,6 +217,7 @@ async def scan_single_link(link: PendingLink, providers: List[ScanProvider], api
 
     try:
         await api.post_scan_result(session, link["id"], payload)
+        link_failures.pop(link["id"], None)
         logger.info("scan_complete", extra={"extra_data": {
             "link_id": link["id"],
             "score": agg_score,
@@ -148,7 +232,41 @@ async def scan_single_link(link: PendingLink, providers: List[ScanProvider], api
             ],
         }})
     except Exception as e:
-        logger.error(f"Failed to post result for {link['id']}: {str(e)}")
+        failure_count = link_failures.get(link["id"], 0) + 1
+        link_failures[link["id"]] = failure_count
+        logger.error("scan_result_post_failed", extra={"extra_data": {
+            "link_id": link["id"],
+            "url": link["target_url"],
+            "error_type": type(e).__name__,
+            "error": str(e),
+            "failure_count": failure_count,
+            "max_attempts": MAX_LINK_SCAN_ATTEMPTS,
+            "aggregate_score": agg_score,
+            "status": status,
+            "payload": payload,
+        }})
+        if failure_count >= MAX_LINK_SCAN_ATTEMPTS:
+            fallback_payload = _build_problem_link_payload(link, failure_count, "scan_result_post_failed")
+            logger.warning("problem_link_post_failure_fallback_payload_ready", extra={"extra_data": {
+                "link_id": link["id"],
+                "failure_count": failure_count,
+                "payload": fallback_payload,
+            }})
+            try:
+                await api.post_scan_result(session, link["id"], fallback_payload)
+                link_failures.pop(link["id"], None)
+                logger.warning("problem_link_marked_warning", extra={"extra_data": {
+                    "link_id": link["id"],
+                    "score": fallback_payload["aggregate_score"],
+                    "status": fallback_payload["status"],
+                    "failure_count": failure_count,
+                }})
+            except Exception as fallback_error:
+                logger.error("problem_link_post_failure_fallback_failed", extra={"extra_data": {
+                    "link_id": link["id"],
+                    "error_type": type(fallback_error).__name__,
+                    "error": str(fallback_error),
+                }})
 
 async def process_with_sem(link: PendingLink, providers: List[ScanProvider], api: WorkerApi, session: aiohttp.ClientSession):
     async with sem:
