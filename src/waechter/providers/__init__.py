@@ -1,4 +1,5 @@
 from waechter.providers.base import (
+    ProviderResult,
     QuotaAwareProvider,
     QuotaExhaustedError,
     RedirectLimitExceededError,
@@ -17,6 +18,7 @@ __all__ = [
     "DnsblProvider",
     "GoogleSafeBrowsingProvider",
     "HeuristicProvider",
+    "ProviderResult",
     "ScreenshotProvider",
     "PhishStatsProvider",
     "QuotaAwareProvider",

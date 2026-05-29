@@ -18,7 +18,8 @@ Die Anforderungen aus dem Pflichtenheft Version 1.2 wurden analysiert. Das Basis
 - [x] Test-Hygiene bereinigt: kopierter Godaddy-Restblock aus `tests/test_providers.py` entfernt.
 - [x] Modul-Hygiene bereinigt: `types.py` aus dem Repo-Root nach `src/waechter/types.py` verschoben, um Shadowing der Standardbibliothek zu vermeiden.
 - [x] Brand-Daten aktualisiert: `netflix.com` und `disney.com` in `brand_domains.csv` sowie in der `.example`-Vorlage ergänzt.
-- [x] Letzte Verifikation: `pytest tests` läuft grün (67 Tests).
+- [x] Letzte Verifikation: `pytest tests` läuft grün (68 Tests).
+- [x] Testsuite auf neue Provider-Subpaket-Architektur migriert: API-Änderungen (Dataclass-Attributzugriff statt Dict-Subscript, `provider.analyzer.check_whois_age`, `provider.domains.brand_context`, neue Modulpfade für Logger/Funktionen) in allen betroffenen Testdateien nachgezogen.
 - [x] Fix: ClamAVProvider respektiert nun die Umgebungsvariable `CLAMAV_ENABLED` (Vorrang vor YAML-Config).
 - [x] Verbesserung: Explizites Logging von Exceptions in ClamAVProvider bei Download- oder Scan-Fehlern.
 - [x] Implementierung der Heuristik: Domains, die weniger als 3 Tage alt sind, werden als hochgradig spam-verdächtig eingestuft (150% Gewichtung).

@@ -19,6 +19,31 @@ SCAN_CONCURRENCY = int(os.environ.get("SCAN_CONCURRENCY", 20))
 wait_ms = MIN_WAIT_MS
 sem = asyncio.Semaphore(SCAN_CONCURRENCY)
 
+
+def _normalize_provider_result(provider: ScanProvider, result: Any) -> dict[str, Any] | None:
+    if result is None:
+        return None
+
+    if hasattr(result, "to_dict"):
+        payload = cast(dict[str, Any], result.to_dict())
+    elif isinstance(result, dict):
+        payload = dict(result)
+    else:
+        logger.warning(
+            "provider_scan_unexpected_result",
+            extra={"extra_data": {"provider": provider.name, "result_type": type(result).__name__}},
+        )
+        return None
+
+    raw_score = payload.get("raw_score")
+    if raw_score is None:
+        return None
+
+    payload.setdefault("provider", provider.name)
+    payload.setdefault("weight", float(getattr(result, "weight", getattr(provider, "weight", 1.0))))
+    payload["raw_score"] = float(raw_score)
+    return payload
+
 async def scan_single_link(link: PendingLink, providers: List[ScanProvider], api: WorkerApi, session: aiohttp.ClientSession) -> None:
     scans_payload: List[dict[str, Any]] = []
     aggregation_inputs: List[dict[str, Any]] = []
@@ -37,28 +62,36 @@ async def scan_single_link(link: PendingLink, providers: List[ScanProvider], api
                 "url": link["target_url"],
             }})
             res = await provider.scan(link["target_url"], session, link_id=link["id"])
-            raw_response = res.get("raw_response")
+            normalized = _normalize_provider_result(provider, res)
+            if normalized is None:
+                logger.debug("provider_scan_no_verdict", extra={"extra_data": {
+                    "provider": provider.name,
+                    "link_id": link["id"],
+                }})
+                continue
+
+            raw_response = normalized.get("raw_response")
             logger.debug("provider_scan_result", extra={"extra_data": {
                 "provider": provider.name,
                 "link_id": link["id"],
-                "raw_score": res["raw_score"],
+                "raw_score": normalized["raw_score"],
                 "has_raw_response": raw_response is not None,
                 "raw_response_preview": str(raw_response)[:300] if raw_response is not None else None,
                 "weight": provider.weight,
             }})
-            scan_raw_score = float(res["raw_score"])
+            scan_raw_score = float(normalized["raw_score"])
             scan_raw_response = str(raw_response) if scan_raw_score >= 0.3 and raw_response is not None else None
             scan_payload_entry = {
-                "provider": provider.name,
+                "provider": str(normalized.get("provider", provider.name)),
                 "raw_score": scan_raw_score,
                 "raw_response": scan_raw_response,
             }
             scans_payload.append(scan_payload_entry)
             aggregation_inputs.append({
-                "provider": provider.name,
+                "provider": str(normalized.get("provider", provider.name)),
                 "raw_score": scan_raw_score,
                 "raw_response": scan_raw_response,
-                "weight": provider.weight,
+                "weight": float(normalized.get("weight", provider.weight)),
             })
         except QuotaExhaustedError as e:
             logger.warning(f"Quota exhausted: {e}", extra={"extra_data": {"provider": provider.name}})
@@ -150,4 +183,3 @@ async def pull_loop(providers: List[ScanProvider], api: WorkerApi):
                     logger.error("Authentication failed (401). Check that WAECHTER_TOKEN is correct and WORKER_BASE_URL uses https://.")
                     sys.exit(1)
                 await asyncio.sleep(wait_ms / 1000.0)
-

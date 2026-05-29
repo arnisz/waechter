@@ -3,7 +3,8 @@ import pytest
 from unittest.mock import patch
 
 from waechter.providers.screenshot import ScreenshotProvider
-import waechter.providers.screenshot as screenshot_module
+import waechter.providers._screenshot.provider as screenshot_provider_module
+import waechter.providers._screenshot.browser as screenshot_browser_module
 
 
 class _FakePage:
@@ -90,9 +91,9 @@ async def test_screenshot_provider_saves_png(monkeypatch, tmp_path):
     playwright = _FakePlaywright(chromium)
 
     monkeypatch.setattr(
-        ScreenshotProvider,
-        "_load_async_playwright",
-        lambda self: (lambda: _FakeAsyncPlaywrightContext(playwright)),
+        screenshot_provider_module,
+        "load_async_playwright",
+        lambda: (lambda: _FakeAsyncPlaywrightContext(playwright)),
     )
 
     provider = ScreenshotProvider()
@@ -101,7 +102,7 @@ async def test_screenshot_provider_saves_png(monkeypatch, tmp_path):
         result = await provider.scan("https://example.org", session, link_id="abc123")
 
     assert provider.enabled is True
-    assert result == {"raw_score": 0.0}
+    assert result.raw_score == 0.0
     assert (tmp_path / "abc123.png").exists()
     assert page.goto_calls[0]["wait_until"] == "domcontentloaded"
     assert page.wait_calls[0]["state"] == "networkidle"
@@ -117,9 +118,9 @@ def test_screenshot_provider_enabled_from_yaml(monkeypatch, tmp_path):
     monkeypatch.delenv("SCREENSHOT_ENABLED", raising=False)
     monkeypatch.setenv("SCREENSHOT_DIR", str(tmp_path))
     monkeypatch.setattr(
-        ScreenshotProvider,
-        "_load_async_playwright",
-        lambda self: object(),
+        screenshot_provider_module,
+        "load_async_playwright",
+        lambda: object(),
     )
 
     provider = ScreenshotProvider()
@@ -133,10 +134,10 @@ def test_screenshot_provider_disables_when_dependency_missing(monkeypatch, tmp_p
     monkeypatch.setenv("SCREENSHOT_ENABLED", "true")
     monkeypatch.setenv("SCREENSHOT_DIR", str(tmp_path))
 
-    def _raise_import_error(self):
+    def _raise_import_error():
         raise ImportError("playwright missing")
 
-    monkeypatch.setattr(ScreenshotProvider, "_load_async_playwright", _raise_import_error)
+    monkeypatch.setattr(screenshot_provider_module, "load_async_playwright", _raise_import_error)
 
     provider = ScreenshotProvider()
 
@@ -153,7 +154,7 @@ def test_screenshot_provider_logs_detailed_directory_diagnostics(monkeypatch):
 
     monkeypatch.setattr("pathlib.Path.mkdir", _raise_permission_error)
 
-    with patch.object(screenshot_module.logger, "error") as log_error:
+    with patch.object(screenshot_browser_module.logger, "error") as log_error:
         provider = ScreenshotProvider()
 
     assert provider.enabled is False
@@ -162,7 +163,7 @@ def test_screenshot_provider_logs_detailed_directory_diagnostics(monkeypatch):
     extra_data = log_error.call_args.kwargs["extra"]["extra_data"]
     assert extra_data["path_is_under_home"] is True
     assert extra_data["nearest_existing_parent"] == "/home"
-    assert "Prefer a directory under /opt/waechter" in extra_data["install_hint"]
+    assert "Prefer a directory under /opt/urlcheck" in extra_data["install_hint"]
 
 
 @pytest.mark.asyncio
@@ -184,18 +185,18 @@ async def test_screenshot_provider_logs_structured_launch_error_for_missing_brow
             self.chromium = _LaunchFailChromium()
 
     monkeypatch.setattr(
-        ScreenshotProvider,
-        "_load_async_playwright",
-        lambda self: (lambda: _FakeAsyncPlaywrightContext(_LaunchFailPlaywright())),
+        screenshot_provider_module,
+        "load_async_playwright",
+        lambda: (lambda: _FakeAsyncPlaywrightContext(_LaunchFailPlaywright())),
     )
 
     provider = ScreenshotProvider()
 
     async with aiohttp.ClientSession() as session:
-        with patch.object(screenshot_module.logger, "error") as log_error:
+        with patch.object(screenshot_browser_module.logger, "error") as log_error:
             result = await provider.scan("https://example.org", session, link_id="launchfail")
 
-    assert result == {"raw_score": 0.0}
+    assert result.raw_score == 0.0
     log_error.assert_called_once()
 
     _, kwargs = log_error.call_args
@@ -213,9 +214,7 @@ async def test_screenshot_provider_logs_structured_launch_error_for_missing_brow
 
 
 def test_screenshot_provider_classifies_missing_shared_library():
-    provider = ScreenshotProvider.__new__(ScreenshotProvider)
-
-    classification = provider._classify_critical_error(
+    classification = screenshot_browser_module.classify_critical_error(
         "BrowserType.launch: Target page, context or browser has been closed\n"
         "[pid=123][err] chrome-headless-shell: error while loading shared libraries: "
         "libnspr4.so: cannot open shared object file: No such file or directory"
@@ -230,9 +229,7 @@ def test_screenshot_provider_classifies_missing_shared_library():
 
 
 def test_screenshot_provider_classifies_missing_shared_library_with_ubuntu_24_04_package_hint():
-    provider = ScreenshotProvider.__new__(ScreenshotProvider)
-
-    classification = provider._classify_critical_error(
+    classification = screenshot_browser_module.classify_critical_error(
         "BrowserType.launch: Target page, context or browser has been closed\n"
         "[pid=123][err] chrome-headless-shell: error while loading shared libraries: "
         "libasound.so.2: cannot open shared object file: No such file or directory"
@@ -240,7 +237,5 @@ def test_screenshot_provider_classifies_missing_shared_library_with_ubuntu_24_04
 
     assert classification["failure_reason"] == "playwright_system_library_missing"
     assert classification["missing_shared_library"] == "libasound.so.2"
-    assert classification["linux_package_hint"] == "libasound2t64 (Ubuntu 24.04+) oder libasound2"
+    assert classification["linux_package_hint"] == "libasound2t64 (Ubuntu 24.04+) or libasound2"
     assert "Ubuntu 24.04+" in classification["install_hint"]
-
-

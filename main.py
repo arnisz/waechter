@@ -48,7 +48,7 @@ async def main():
     gsb_key = os.environ.get("GOOGLE_SAFE_BROWSING_API_KEY", "")
     gsb_cfg = provider_cfg("google_safe_browsing")
     if gsb_key and as_bool(gsb_cfg.get("enabled", True)):
-        providers.append(GoogleSafeBrowsingProvider(gsb_key))
+        providers.append(GoogleSafeBrowsingProvider(api_key=gsb_key))
 
     # DNSBL
     dnsbl_cfg = provider_cfg("dnsbl")
