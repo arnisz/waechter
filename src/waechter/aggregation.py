@@ -13,15 +13,25 @@ def aggregate_score(scans: list[dict]) -> float:
     # A score of 0.0 means "no positive signal", not proof that the URL is safe.
     probability_clean = 1.0
     for scan in scans:
-        raw_score = _clamp_probability(float(scan["raw_score"]))
-        weight = max(float(scan.get("weight", 1.0)), 0.0)
+        try:
+            raw_score = _clamp_probability(float(scan["raw_score"]))
+            weight = max(float(scan.get("weight", 1.0)), 0.0)
 
-        if raw_score == 0.0 or weight == 0.0:
+            if raw_score == 0.0 or weight == 0.0:
+                continue
+
+            # Ensure we don't have NaN or Inf
+            if not math.isfinite(raw_score) or not math.isfinite(weight):
+                continue
+
+            probability_clean *= math.pow(1.0 - raw_score, weight)
+        except (ValueError, TypeError, OverflowError):
             continue
 
-        probability_clean *= math.pow(1.0 - raw_score, weight)
-
-    return _clamp_probability(1.0 - probability_clean)
+    result = _clamp_probability(1.0 - probability_clean)
+    if not math.isfinite(result):
+        return 0.0
+    return result
 
 def _clamp_probability(value: float) -> float:
     if value < 0.0:

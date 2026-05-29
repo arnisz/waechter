@@ -102,6 +102,10 @@ Wichtiger Hinweis: UCEPROTECT Level 3 listet ganze Autonome Systeme (ASN‑weit)
 - Logging: `LOG_LEVEL=DEBUG` für Diagnose; bei systemd werden ENV nicht vom Shell‑Kontext geerbt → `EnvironmentFile` benutzen.
 - ClamAV: `clamd` muss laufen und Socket‑Pfad muss passen; Größen‑ und Redirect‑Limits beachten.
 - DNSBL: Eine Redis‑Instanz mit befüllter UCEPROTECT‑Level‑3‑Liste muss erreichbar sein (`DNSBL_REDIS_URL`). Das Befüllen der Liste liegt außerhalb des Worker‑Scopes; der Provider liest nur. Redis kann eine separate Instanz/DB sein.
+- Aktueller Audit-Hinweis: Die Implementierung enthält zusätzlich `PhishStatsProvider` und `ScreenshotProvider`. Beide können im Betrieb zusätzliche Fehlerquellen erzeugen und müssen im nächsten Implementierungsschritt vollständig dokumentiert oder standardmäßig deaktiviert werden.
+- PhishStats erzeugt ausgehende Requests zu `api.phishstats.info`; dieser Egress muss in Firewall-/NAT-Umgebungen bewusst erlaubt oder per `PHISHSTATS_ENABLED=false` deaktiviert werden.
+- Screenshot benötigt Playwright/Chromium plus Debian-Systembibliotheken. Ohne Browser-Installation schlägt der Provider zur Laufzeit fehl; mit Browser-Scanning entstehen SSRF-/Egress- und Browser-Isolationsrisiken, da Zielseiten hinter der Firewall/NAT geladen werden.
+- Debian-Betrieb hinter Firewall/IPv4-NAT ist grundsätzlich möglich, weil keine eingehenden öffentlichen Ports benötigt werden. Erforderlich sind kontrollierte ausgehende Verbindungen zum Backend und zu bewusst aktivierten externen Providern; interne Netze/Metadata-Adressen sollten für Content-Download- und Screenshot-Provider per Firewall blockiert werden.
 - Skalierung: Mehrere Worker‑Instanzen möglich; Backend sollte Idempotenz/Claiming sicherstellen.
 
 ## 8. Tests
@@ -115,6 +119,8 @@ Wichtiger Hinweis: UCEPROTECT Level 3 listet ganze Autonome Systeme (ASN‑weit)
 
 ## 9. Bekannte Verbesserungspunkte (Auszug)
 
+- Konfigurations-/Dokumentationskonsistenz: README, `.env.example`, `config/waechter.yaml`, Installer und Provider-Code sind für `DNSBL_*`, `CLAMAV_*`, `PHISHSTATS_*`, `SCREENSHOT_*`, Redis-Cache-Variablen und Defaults zu vereinheitlichen.
+- Debian-Installationspfad: Playwright/Chromium-Installation, Systembibliotheken, systemd-Hardening und klare Provider-Defaults ergänzen; frische Installation muss ohne manuelle Nacharbeit starten oder optionale Provider sauber deaktivieren.
 - WHOIS‑Caching (siehe Pflichtenheft, Punkt „3. WHOIS‑Caching fehlt"): eTLD+1‑Schlüssel, TTL ~24h, In‑Memory oder Redis zur Vermeidung von Registrar‑IP‑Bans.
 - DNS‑Auflösungs‑Cache für den DNSBL‑Provider: Mehrere Links derselben Domain lösen denselben Host wiederholt auf; ein kurzlebiger Cache (oder Wiederverwendung des Heuristik‑Resolvers) spart externe DNS‑Roundtrips.
 - CDN‑Allowlist für DNSBL: Bekannte CDN‑/Großanbieter‑Bereiche (z. B. Cloudflare) können in L3 gelistet sein und False Positives erzeugen; optionale Allowlist erwägen.

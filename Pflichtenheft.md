@@ -104,6 +104,37 @@ N5. Observability
 
 ## 9. Bekannte Lücken / Risiken / To‑dos
 
+1. Dokumentations-/Implementierungsabweichungen mit Installations- oder Betriebswirkung
+
+Bei der Codeprüfung wurden Abweichungen zwischen README, `agents.md`, `.env.example`, Installer und tatsächlichem Startverhalten gefunden, die bei Installation oder Betrieb zu Fehlern bzw. unerwarteten externen Zugriffen führen können. Diese Punkte sind im nächsten Implementierungsschritt zu korrigieren, bevor ein produktiver Debian-Betrieb empfohlen wird.
+
+Findings:
+- `main.py` startet zusätzlich `PhishStatsProvider` und `ScreenshotProvider`; beide Provider sind in README/agents.md/Pflichtenheft v1.2 nicht vollständig als Scope, Betriebsabhängigkeit und Risiko dokumentiert.
+- `PhishStatsProvider` ist ohne explizite Konfiguration standardmäßig aktiv und ruft `https://api.phishstats.info/api/phishing` auf. Dadurch entsteht ein zusätzlicher externer HTTP-Abfluss, der in Firewall-/NAT-Setups bewusst erlaubt oder deaktiviert werden muss.
+- `ScreenshotProvider` ist im Installer standardmäßig aktivierbar und benötigt Playwright plus Chromium-Browser sowie Linux-Systembibliotheken. Ohne `python -m playwright install chromium` und passende Debian-Pakete kann der Provider zur Laufzeit ausfallen.
+- Screenshot-Scanning lädt beliebige Zielseiten in einem Headless-Browser hinter der Firewall/NAT. Das ist ein SSRF-/Egress- und Browser-Isolationsrisiko und erfordert harte Betriebsgrenzen: ausgehende Firewall-Regeln, kein Zugriff auf interne Netze/Metadata-IPs, eigener unprivilegierter Benutzer, Sandbox bevorzugt aktiv, optional Provider standardmäßig deaktivieren.
+- `.env.example` ist unvollständig: `DNSBL_*`, `PHISHSTATS_ENABLED`, `SCREENSHOT_*` und Redis-Cache-Variablen fehlen; außerdem weichen Defaults von README/Implementierung ab (`MAX_WAIT_MS`, `THRESHOLD_WARNING`, `THRESHOLD_BLOCK`).
+- `README.md` beschreibt die Debian-Installation nicht vollständig für den Screenshot-Provider. Es fehlen klare Schritte für Playwright/Chromium und Systemabhängigkeiten sowie eine Empfehlung, den Provider ohne Browser-Isolation explizit zu deaktivieren.
+- Provider-Metadaten nennen teils `URLCHECK_CLAMAV_*` bzw. `URLCHECK_DNSBL_*`, während README, Installer und `main.py` `CLAMAV_*` bzw. `DNSBL_*` verwenden. Das erzeugt Verwirrung und kann bei automatischer Konfigurationsprüfung zu falschen Hinweisen führen.
+- Nicht alle in README/agents.md genannten DNSBL-ENV-Optionen werden in `main.py` explizit an den Provider übergeben; für `timeout_ms`, `max_ips`, `score_listed` und `use_spamscore` ist der effektive ENV-Vorrang zu prüfen und ggf. konsistent zu implementieren.
+- `config/waechter.yaml`, `install.py` und `.env.example` sind nicht deckungsgleich: Der Installer kann einen `screenshot`-Abschnitt erzeugen, die vorhandene YAML enthält ihn nicht; `PhishStats` ist in der vorhandenen YAML ebenfalls nicht enthalten.
+
+Korrekturvorgaben für den nächsten Implementierungsschritt:
+- Eine einzige, verbindliche Konfigurationsmatrix erstellen und in README, `.env.example`, `config/waechter.yaml`, Installer und Provider-Code angleichen.
+- Für alle Provider eindeutige ENV-Namen verwenden; Alt-Namen nur bewusst und dokumentiert als Kompatibilitätsalias akzeptieren.
+- `PhishStatsProvider` und `ScreenshotProvider` entweder vollständig dokumentieren und testen oder standardmäßig deaktivieren, bis Installation, Sicherheit und Betrieb sauber spezifiziert sind.
+- Debian-Installationsanleitung um Playwright/Chromium, Systempakete, Systemd-Hardening und Firewall-/Egress-Regeln ergänzen.
+- Akzeptanztest: Frische Debian-Installation nach README/Installer muss ohne manuelle Nacharbeit starten; deaktivierte optionale Provider dürfen keine externen Requests auslösen; aktivierte Provider müssen klare Fehlermeldungen und Health-/Log-Hinweise liefern.
+
+2. Betrieb hinter Firewall/NAT
+
+Der Worker kann hinter einer Firewall und hinter IPv4-NAT betrieben werden, da eingehend keine öffentlichen Ports erforderlich sind und der Worker ausgehend das Backend sowie optionale externe Provider kontaktiert. Dieses Betriebsmodell ist als Zielumgebung beizubehalten.
+
+Zu beachten:
+- Erforderliche ausgehende Verbindungen sind explizit zu dokumentieren: Backend-API (`WORKER_BASE_URL`), optional Google Safe Browsing, optional PhishStats, DNS/WHOIS, optional Redis/DNSBL, optional Ziel-URLs für ClamAV/Screenshot.
+- Interne Netze, Link-Local-/Metadata-Adressen und nicht benötigte Ziele sollten durch Firewall-Regeln blockiert werden, insbesondere wenn Screenshot- oder Content-Download-Provider aktiv sind.
+- Redis und ClamAV sollen lokal oder über private Netze erreichbar sein und nicht öffentlich exponiert werden.
+
 3. WHOIS-Caching fehlt
 
 Wenn Angreifer 50 verschiedene Phishing-Links generieren, die alle auf dieselbe neu registrierte Subdomain zeigen, feuert dein Wächter 50 separate WHOIS-Abfragen für dieselbe Domain ab. Das führt unweigerlich zum IP-Ban durch die WHOIS-Registrare.

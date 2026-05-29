@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import asyncio
 import aiohttp
 from typing import Any, List, cast
@@ -79,8 +80,15 @@ async def scan_single_link(link: PendingLink, providers: List[ScanProvider], api
                 "raw_response_preview": str(raw_response)[:300] if raw_response is not None else None,
                 "weight": provider.weight,
             }})
-            scan_raw_score = float(normalized["raw_score"])
-            scan_raw_response = str(raw_response) if scan_raw_score >= 0.3 and raw_response is not None else None
+            scan_raw_score = round(float(normalized["raw_score"]), 4)
+            if raw_response is not None and scan_raw_score >= 0.3:
+                if isinstance(raw_response, (dict, list)):
+                    scan_raw_response = json.dumps(raw_response)
+                else:
+                    scan_raw_response = str(raw_response)
+            else:
+                scan_raw_response = None
+
             scan_payload_entry = {
                 "provider": str(normalized.get("provider", provider.name)),
                 "raw_score": scan_raw_score,
@@ -108,7 +116,7 @@ async def scan_single_link(link: PendingLink, providers: List[ScanProvider], api
         logger.error("All providers failed or disabled", extra={"extra_data": {"link_id": link["id"]}})
         return
 
-    agg_score = aggregate_score(aggregation_inputs)
+    agg_score = round(aggregate_score(aggregation_inputs), 4)
     status = map_status(agg_score)
 
 

@@ -22,6 +22,15 @@ class WorkerApi:
         async with session.post(url, headers=self.headers, json=payload) as resp:
             if resp.status == 404:
                 return # manual_override=1 expected handling
+            if resp.status >= 400:
+                body = await resp.text()
+                raise aiohttp.ClientResponseError(
+                    resp.request_info,
+                    resp.history,
+                    status=resp.status,
+                    message=f"{resp.message} - Body: {body[:500]}",
+                    headers=resp.headers
+                )
             resp.raise_for_status()
 
     async def release_stale(self, session: aiohttp.ClientSession) -> None:

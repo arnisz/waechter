@@ -36,10 +36,23 @@ Die Anforderungen aus dem Pflichtenheft Version 1.2 wurden analysiert. Das Basis
 ## In Arbeit
 
 - [ ] Deployment Setup / Containerisierung / systemd-Konfiguration auf dem Hetzner VPS; Cloudflare-Konfiguration prüfen.
+- [ ] Nächster Implementierungsschritt: Installations- und Betriebs-Findings korrigieren, die bei Debian-Installation oder Laufzeit zu Fehlern führen können.
+
+## Aktuelle Findings aus Dokumentations-/Codeprüfung
+
+Diese Punkte müssen vor dem nächsten produktiven Rollout umgesetzt oder bewusst entschieden werden:
+
+- Undokumentierte bzw. unvollständig dokumentierte Provider: `main.py` integriert zusätzlich `PhishStatsProvider` und `ScreenshotProvider`. README, agents.md und Pflichtenheft beschreiben aktuell primär Heuristik, Google Safe Browsing, ClamAV und DNSBL.
+- `PhishStatsProvider` ist ohne Konfigurationsabschnitt standardmäßig aktiv und erzeugt externe Requests zu `api.phishstats.info`. In Firewall-/NAT-Umgebungen muss dieser Egress dokumentiert, erlaubt oder der Provider standardmäßig deaktiviert werden.
+- `ScreenshotProvider` benötigt Playwright/Chromium und zusätzliche Debian-Systembibliotheken. Ohne vollständige Installation kann der Provider zur Laufzeit scheitern; mit aktivem Provider entstehen zusätzliche Browser-/SSRF-/Egress-Risiken beim Laden beliebiger Zielseiten hinter der Firewall.
+- `.env.example`, README, `config/waechter.yaml`, `install.py` und Provider-Code sind nicht deckungsgleich. Es fehlen u. a. `DNSBL_*`, `PHISHSTATS_ENABLED`, `SCREENSHOT_*` und Redis-Cache-Variablen in `.env.example`; außerdem weichen Defaultwerte für `MAX_WAIT_MS`, `THRESHOLD_WARNING` und `THRESHOLD_BLOCK` ab.
+- Provider-Metadaten verwenden teils `URLCHECK_CLAMAV_*`/`URLCHECK_DNSBL_*`, während die dokumentierte und im Installer verwendete Konvention `CLAMAV_*`/`DNSBL_*` lautet.
+- Der DNSBL-ENV-Vorrang ist für alle dokumentierten Optionen zu vereinheitlichen: `DNSBL_TIMEOUT_MS`, `DNSBL_MAX_IPS`, `DNSBL_SCORE_LISTED`, `DNSBL_USE_SPAMSCORE` und `DNSBL_WEIGHT` müssen konsistent aus ENV/YAML aufgelöst werden.
+- Die Debian-Dokumentation muss explizit zwischen Minimalbetrieb hinter Firewall/NAT und optionalen Providern mit zusätzlichem Egress unterscheiden.
 
 ## Nächste Schritte
 
-- DNSBL-Provider gemäß `prompt_dnsbl_provider.md` implementieren und abnehmen.
+- Installations- und Betriebs-Findings aus der Dokumentations-/Codeprüfung beheben: Konfigurationsmatrix vereinheitlichen, `.env.example` aktualisieren, README/agents/Pflichtenheft angleichen, optionale Provider-Defaults prüfen und Debian-Installationspfad verifizieren.
 - Deployment Setup / Containerisierung / systemd-Konfiguration auf dem Hetzner VPS; Cloudflare-Konfiguration prüfen. Beim Deployment sicherstellen, dass die DNSBL-Redis-Instanz erreichbar und die UCEPROTECT-Liste befüllt ist.
 
 ## Verbesserungen des Algorithmus
