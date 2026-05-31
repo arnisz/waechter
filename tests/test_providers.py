@@ -530,3 +530,26 @@ async def test_reasons_and_signals_consistency(monkeypatch):
     assert any("raw IP in URL" in r for r in res.reasons)
     reason_for_ip = [r for r in res.reasons if "raw IP in URL" in r][0]
     assert f"(+{res.signals['ip_address']:.2f})" in reason_for_ip
+
+
+@pytest.mark.asyncio
+async def test_heuristic_provider_apk_download_reaches_warning(monkeypatch):
+    """GitHub-APK-Download-Link muss mindestens Warning-Score (>= 0.4) erreichen."""
+    provider = HeuristicProvider()
+    async def mock_whois(hostname): return 0.0
+    monkeypatch.setattr(provider.analyzer, "check_whois_age", mock_whois)
+
+    url = "https://github.com/nortusmarsumi-create/Ppl/releases/download/v1.0/RTO_Challan.apk"
+    async with aiohttp.ClientSession() as session:
+        with aioresponses() as m:
+            m.head(url, status=200)
+            m.get(url, status=200, headers={"Content-Type": "application/octet-stream"}, body=b"")
+            res = await provider.scan(url, session)
+
+    assert res.raw_score >= 0.4, (
+        f"APK-Download-Link sollte mindestens Warning-Score erreichen, "
+        f"aber raw_score={res.raw_score:.3f}, signals={res.signals}, reasons={res.reasons}"
+    )
+    assert res.signals.get("suspicious_url_keywords", 0.0) > 0, (
+        "Das Keyword 'apk' muss als suspicious_url_keywords erkannt werden"
+    )
